@@ -33,9 +33,9 @@ You are an intelligent assistant capable of performing searches and providing pr
    - Parameters: The crop region of the image.
    - Returns: Cropped image.
 
-3. answer:  
-   - Respond directly to the user based on search results.  
-   - Parameters: The response to the user's query.  
+3. search_complete:
+   - Set to True when you have gathered enough information (images/crops).
+   - When True, stop searching/cropping and finalize the collection for the dataset.
 
 ### Requirements
 - Ensure tool usage is precise and queries are well-formulated.
@@ -43,32 +43,27 @@ You are an intelligent assistant capable of performing searches and providing pr
 - Iterate search attempts if initial results are insufficient.
 - Follow the response format.
 
-
 ### Reply Format
-You **must** response with the following json format:
-When you need to search, you need to provide the search query in the following format:
-```
+You MUST respond with the following json format:
+
+When you need to search:
 {
     "think": ...,
     "search": ...
 }
-```
-When you need to crop the image, you need to provide the following format:
-For tables, charts, or any visual elements, please use bounding boxes to completely encapsulate them.
-```
+
+When you need to crop:
 {
     "think": ...,
     "bbox": [x1, y1, x2, y2],
-    "description": the cropped content ...
+    "description": "the cropped content ..."
 }
-```
-When you have gathered enough information to answer the question, provide your response immediately:
-```
+
+When you have gathered enough information to answer:
 {
     "think": ...,
-    "answer": ...
+    "search_complete": true
 }
-```
 """
 
 prompt_user_start = """Question: {question}"""

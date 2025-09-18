@@ -31,7 +31,7 @@ import torch.distributed
 from torch import nn, optim
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, ShardingStrategy, CPUOffload
 from tqdm import tqdm
-from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, AutoConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, AutoConfig, AutoModelForVision2Seq #AutoModelForVision2Seq 추가(수정)
 from verl.utils.torch_functional import get_cosine_schedule_with_warmup
 from tensordict import TensorDict
 from torch.utils.data import DataLoader, DistributedSampler
@@ -85,7 +85,9 @@ class FSDPSFTTrainer(object):
         # build tokenizer first
         local_model_path = copy_to_local(src=self.config.model.partial_pretrain, verbose=True)
         from verl.utils import hf_tokenizer
-        self.tokenizer = hf_tokenizer(local_model_path, trust_remote_code=self.config.model.trust_remote_code)
+        self.tokenizer = hf_tokenizer(local_model_path, trust_remote_code=self.config.model.trust_remote_code) 
+        
+
         if self.config.data.chat_template is not None:
             raise ValueError('Apply Chat template from config is not supported yet.')
 
@@ -122,7 +124,7 @@ class FSDPSFTTrainer(object):
         config = self.config
         # build dataset
         self.train_dataset = SFTDataset(parquet_files=config.data.train_files,
-                                        tokenizer=self.tokenizer,
+                                        tokenizer=self.tokenizer, 
                                         prompt_key=config.data.prompt_key,
                                         prompt_dict_keys=config.data.get('prompt_dict_keys', None),
                                         response_key=config.data.response_key,
@@ -130,7 +132,7 @@ class FSDPSFTTrainer(object):
                                         max_length=config.data.max_length,
                                         truncation=config.data.truncation)
         self.val_dataset = SFTDataset(parquet_files=config.data.val_files,
-                                      tokenizer=self.tokenizer,
+                                      tokenizer=self.tokenizer, 
                                       prompt_key=config.data.prompt_key,
                                       prompt_dict_keys=config.data.get('prompt_dict_keys', None),
                                       response_key=config.data.response_key,
@@ -208,13 +210,25 @@ class FSDPSFTTrainer(object):
                                                        mesh=self.device_mesh)
 
         with init_context():
-            self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(local_model_path,
-                                                                               config=config,
-                                                                               torch_dtype=torch.float32,
-                                                                               attn_implementation='flash_attention_2',
-                                                                               trust_remote_code=trust_remote_code)
+            # self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(local_model_path,
+            #                                                                    config=config,
+            #                                                                    torch_dtype=torch.float32,
+            #                                                                    attn_implementation='flash_attention_2',
+            #                                                                    trust_remote_code=trust_remote_code)
+            
+            #수정
+            self.model = AutoModelForVision2Seq.from_pretrained(
+                local_model_path,
+                config=config,
+                torch_dtype= torch.float32,
+                attn_implementation= 'flash_attention_2',
+                trust_remote_code = True
+            )
+            ###########
+
 
             # Apply Liger kernel if use_liger is enabled
+
             if self.config.model.get('use_liger', False):
                 from liger_kernel.transformers.monkey_patch import _apply_liger_kernel_to_instance
                 _apply_liger_kernel_to_instance(model=self.model)
@@ -436,7 +450,7 @@ class FSDPSFTTrainer(object):
         if self.device_mesh.get_rank() == 0:
             os.makedirs(path, exist_ok=True)
             self.model.save_pretrained(path, state_dict=state_dict)
-            self.tokenizer.save_pretrained(path)
+            self.tokenizer.save_pretrained(path) 
             if self.config.trainer.default_hdfs_dir:
                 hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
                 hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)

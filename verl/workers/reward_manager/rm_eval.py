@@ -17,7 +17,6 @@ from verl.utils.reward_score import _default_compute_score
 import torch
 import json
 import requests
-import math
 import numpy as np
 import os
 from time import sleep
@@ -29,18 +28,11 @@ def recall_ret(sorted_docs, golden_answer_list):
     :param golden_answer_list: 一个列表，表示所有相关文档（golden answers）
     :return: Recall 值
     """
-    # 将两个列表转换为集合，便于快速查找交集
     sorted_docs_set = set(sorted_docs)
     golden_answer_set = set(golden_answer_list)
-
-    # 计算交集的大小，即检索到的相关文档数量
     relevant_retrieved = len(sorted_docs_set.intersection(golden_answer_set))
-
-    # 如果没有相关文档，召回率为0
     if len(golden_answer_set) == 0:
         return 0.0
-
-    # 计算召回率
     recall_value = relevant_retrieved / len(golden_answer_set)
     return recall_value
 
@@ -62,76 +54,50 @@ def ndcg(sorted_docs, golden_answer_list):
     :param golden_answer_list: 一个列表，表示所有相关文档（golden answers）
     :return: NDCG 值
     """
-    # 将文档映射为相关性分数（在 golden_answer_list 中的文档为 1，否则为 0）
     relevance_scores = [1 if doc in golden_answer_list else 0 for doc in sorted_docs]
-    
-    # 计算 DCG
     dcg_value = dcg(relevance_scores)
-    
-    # 计算 IDCG（理想情况下的 DCG，所有相关文档都排在前面）
     ideal_relevance_scores = [1] * len(golden_answer_list) + [0] * (len(sorted_docs) - len(golden_answer_list))
     idcg_value = dcg(ideal_relevance_scores)
-    
-    # 防止分母为零
     if idcg_value == 0:
         return 0.0
-    
-    # 计算 NDCG
     ndcg_value = dcg_value / idcg_value
     return ndcg_value
 
 def get_answer_from_predict_str(text):
     end_tag = '</answer>'
     start_tag = '<answer>'
-    
     end_pos = text.rfind(end_tag)
-    if end_pos == -1:
-        return None  # 如果没有找到</answer>，返回None
-    
+    if end_pos == -1: return None
     start_pos = text.rfind(start_tag, 0, end_pos)
-    if start_pos == -1:
-        return None  # 如果没有找到<answer>，返回None
-    
-    start_pos += len(start_tag)  # 跳过<answer>标签
+    if start_pos == -1: return None
+    start_pos += len(start_tag)
     return text[start_pos:end_pos]
 
 
 class RMEvalManager:
-    """The reward manager.
-    """
-
-    def __init__(self, tokenizer, num_examine, compute_score=None,rm_url="http://0.0.0.0:8003/eval") -> None:
+    def __init__(self, tokenizer, num_examine, compute_score=None, rm_url="http://0.0.0.0:8003/eval") -> None:
         self.tokenizer = tokenizer
-        self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
+        self.num_examine = num_examine
         self.compute_score = compute_score or _default_compute_score
         self.rm_url = rm_url
 
     def verify(self, data):
+        # (이 함수는 현재 학습 흐름에서 직접 사용되지 않으므로 수정하지 않아도 무방합니다.)
         scores = []
         for i in range(len(data)):
-            data_item = data[i]  # DataProtoItem
-
+            data_item = data[i]
             prompt_ids = data_item.batch['prompts']
-
             prompt_length = prompt_ids.shape[-1]
-
             valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
             valid_prompt_ids = prompt_ids[-valid_prompt_length:]
-
             response_ids = data_item.batch['responses']
             valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
             valid_response_ids = response_ids[:valid_response_length]
-
-            # decode
             prompt_str = self.tokenizer.decode(valid_prompt_ids)
             response_str = self.tokenizer.decode(valid_response_ids)
-
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
-
             data_source = data_item.non_tensor_batch['data_source']
-
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
-
             score = self.compute_score(
                 data_source=data_source,
                 solution_str=response_str,
@@ -143,9 +109,6 @@ class RMEvalManager:
         return scores
 
     def __call__(self, data: DataProto):
-        """We will expand this function gradually based on the available datasets"""
-
-        # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if 'rm_scores' in data.batch.keys():
             return data.batch['rm_scores']
 
@@ -173,41 +136,23 @@ class RMEvalManager:
                 reference_answer = data_item.non_tensor_batch['reward_model']['ground_truth']
             ))
 
-        data_to_be_eval = []
-        for i in range(len(data)):
-            data_item = data[i]  # DataProtoItem
+        # ##############수정 (주석 처리) ########
+        # 이유: NotImplementedError를 유발하는 self.compute_score를 필터로 사용하지 않기 위해 주석 처리합니다.
+        # data_to_be_eval = []
+        # for i in range(len(data)):
+        #     data_item = data[i]
+        #     # ... (중략) ...
+        #     score = self.compute_score(...)
+        #     if score > 0.0:
+        #         data_to_be_eval.append(data_eval[i])
+        ##############수정 완료 (주석 처리) #########
 
-            prompt_ids = data_item.batch['prompts']
-
-            prompt_length = prompt_ids.shape[-1]
-
-            valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
-            valid_prompt_ids = prompt_ids[-valid_prompt_length:]
-
-            response_ids = data_item.batch['responses']
-            valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
-            valid_response_ids = response_ids[:valid_response_length]
-
-            # decode
-            prompt_str = self.tokenizer.decode(valid_prompt_ids)
-            response_str = self.tokenizer.decode(valid_response_ids)
-
-            ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
-
-            data_source = data_item.non_tensor_batch['data_source']
-
-            extra_info = data_item.non_tensor_batch.get('extra_info', None)
-
-            score = self.compute_score(
-                data_source=data_source,
-                solution_str=response_str,
-                ground_truth=ground_truth,
-                extra_info=extra_info,
-            )
-            
-            if score >0.0:
-                data_to_be_eval.append(data_eval[i])
+        ###############수정 (삽입) ###########
+        # 이유: 필터링 없이 모든 데이터를 외부 API 평가 대상으로 삼습니다.
+        data_to_be_eval = data_eval
+        #################수정 완료 (삽입) ###############
         
+        eval_results = []  # [삽입] eval_results 변수를 미리 초기화합니다.
         if len(data_to_be_eval) > 0:
             bs = 200
             while True:
@@ -218,52 +163,58 @@ class RMEvalManager:
                     )
                     prompts_json = json.dumps(request_data_to_be_eval)
                     print("=====================eval model start=====================")
-                    response = requests.post(self.rm_url, json=prompts_json)
+                    # response = requests.post(self.rm_url, json=prompts_json) #외부 api 출력 수정 제거
+                    response = requests.post(self.rm_url, json=request_data_to_be_eval) #외부 api 출력 추가
+
+                    response.raise_for_status() # [수정] 응답 상태 코드가 200이 아니면 에러를 발생시킵니다.
                     eval_results = response.json()
                     print("=====================eval model end=====================")
                     break
-                except:
-                    print("=====================eval model error=====================")
+                except requests.exceptions.RequestException as e: # [수정] 더 구체적인 예외를 잡습니다.
+                    print(f"=====================eval model error: {e}=====================")
                 bs = max(int(bs/2),5)
                 sleep(5)
         
         for i in range(len(data)):
-            data_item = data[i]  # DataProtoItem
-
+            data_item = data[i]
             prompt_ids = data_item.batch['prompts']
-
             prompt_length = prompt_ids.shape[-1]
-
             valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
             valid_prompt_ids = prompt_ids[-valid_prompt_length:]
-
             response_ids = data_item.batch['responses']
             valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
             valid_response_ids = response_ids[:valid_response_length]
-
-            # decode
             prompt_str = self.tokenizer.decode(valid_prompt_ids)
             response_str = self.tokenizer.decode(valid_response_ids)
-
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
-
             data_source = data_item.non_tensor_batch['data_source']
-
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
-            score = self.compute_score(
-                data_source=data_source,
-                solution_str=response_str,
-                ground_truth=ground_truth,
-                extra_info=extra_info,
-            )
+            ##############수정 (주석 처리) ########
+            # 이유: NotImplementedError를 유발하는 내부 점수 계산을 비활성화합니다.
+            # score = self.compute_score(
+            #     data_source=data_source,
+            #     solution_str=response_str,
+            #     ground_truth=ground_truth,
+            #     extra_info=extra_info,
+            # )
+            ##############수정 완료 (주석 처리) #########
+
+            ###############수정 (삽입) ###########
+            # 이유: 내부 점수 대신 API 결과와 NDCG, Recall 점수만으로 최종 점수를 계산합니다.
+            score = eval_results[i] if i < len(eval_results) else 0.0
             
-            if score >0.0:
-                score = eval_results.pop(0)
+            # if score > 0.0: # [주석 처리] 내부 점수 필터링을 제거합니다.
+            try:
                 retrievaled_images_basename_list = [os.path.basename(item.rstrip('/')).split(".jpg")[0] for item in data_item.non_tensor_batch['retrievaled_images']]
                 reference_images_basename_list = [f'{extra_info["file_name"].split(".pdf")[0]}_{page}' for page in extra_info["reference_page"].tolist()]
                 recall_list.append(recall_ret(retrievaled_images_basename_list, reference_images_basename_list))
                 ndcg_list.append(ndcg(retrievaled_images_basename_list, reference_images_basename_list))
+            except Exception as e:
+                # RAG 관련 데이터가 아닐 경우 에러가 날 수 있으므로, 기본값을 추가하고 넘어갑니다.
+                recall_list.append(0.0)
+                ndcg_list.append(0.0)
+            #################수정 완료 (삽입) ###############
 
             reward_tensor[i, valid_response_length - 1] = score
 
@@ -278,3 +229,4 @@ class RMEvalManager:
                 print("[score]", score)
 
         return reward_tensor, ndcg_list, recall_list
+

@@ -12,6 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+
+
+
+###수정 추가#####
+#if kl_penalty == "clipping"
+
 """
 Core functions to implement PPO algorithms.
 The function implemented in this file should be used by trainer with different distributed strategies to
@@ -359,12 +366,18 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
     Returns:
 
     """
+    clip_coef = 0.2 #추가
+
     if kl_penalty == "kl":
         return logprob - ref_logprob
 
     if kl_penalty == "abs":
         return (logprob - ref_logprob).abs()
-
+    ###수정 추가#####
+    if kl_penalty == "clipping":
+        diff = logprob - ref_logprob
+        return torch.clamp(diff, -clip_coef, clip_coef)
+    ###수정 추가 완료#####
     if kl_penalty == "mse":
         return 0.5 * (logprob - ref_logprob).square()
 

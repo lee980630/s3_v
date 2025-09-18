@@ -113,6 +113,8 @@ class SFTDataset(Dataset):
                 print(f'self.responses={self.responses}')
                 raise
         self.responses = self.responses.tolist()
+        # ✨ 1단계 수정: 'image_path' 컬럼을 읽어와 self.image_paths 리스트에 저장
+        self.image_paths = self.dataframe['image_path'].tolist()
 
     def __len__(self):
         return len(self.prompts)
@@ -122,14 +124,28 @@ class SFTDataset(Dataset):
 
         prompt = self.prompts[item]
         response = self.responses[item]
+        # ✨ 2-1단계: 현재 데이터에 해당하는 image_path 가져오기
+        image_path = self.image_paths[item]
+        # ✨ 2-2단계: 프롬프트 텍스트와 이미지 경로를 VLM이 알아들을 수 있는 형식으로 결합
+        # (주의: VLM 모델(Qwen-VL, LLaVA 등)마다 요구하는 정확한 형식이 다를 수 있습니다.)
+        # 일반적인 예시: "<img>/path/to/image.jpg</img>\n\n{실제 프롬프트}"
+        # 이미지 경로가 있는 경우에만 결합합니다.
+        if image_path:
+            # TODO: image_path가 실제 접근 가능한 로컬 경로인지 확인 필요
+            # 이 예제에서는 경로가 유효하다고 가정합니다.
+            formatted_prompt = f"<img>{image_path}</img>\n\n{prompt_text}"
+        else:
+            formatted_prompt = prompt_text
 
+        
         # apply chat template
         prompt_chat = [{'role': 'user', 'content': prompt}]
 
         # string
         prompt_chat_str = tokenizer.apply_chat_template(prompt_chat, add_generation_prompt=True, tokenize=False)
-        response_chat_str = response + tokenizer.eos_token
-        
+        #tokenizer 변수에 '필통(Processor)'이 담겨있는 상태
+        #response_chat_str = response + tokenizer.eos_token #수정
+        response_chat_str = response + tokenizer.tokenizer.eos_token
 
 
         # tokenize

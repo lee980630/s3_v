@@ -15,6 +15,9 @@
 The main entry point to run the PPO algorithm
 """
 
+from verl.utils.tracking import Tracking
+
+
 import logging
 import os
 import warnings
@@ -269,13 +272,43 @@ class ActorRolloutRefWorker(Worker):
 
         log_gpu_memory_usage('After Actor FSDP init', logger=logger)
 
+        # 수정
         # TODO: add more optimizer args into config
+        # if role == 'actor' and optim_config is not None:
+        #     from verl.utils.torch_functional import get_constant_schedule_with_warmup
+        #     actor_optimizer = optim.AdamW(actor_module_fsdp.parameters(),
+        #                                   lr=optim_config.lr,
+        #                                   betas=optim_config.get('betas', (0.9, 0.999)),
+        #                                   weight_decay=optim_config.get('weight_decay', 1e-2))
+
+        ###########################츄가 ######################
         if role == 'actor' and optim_config is not None:
             from verl.utils.torch_functional import get_constant_schedule_with_warmup
-            actor_optimizer = optim.AdamW(actor_module_fsdp.parameters(),
-                                          lr=optim_config.lr,
-                                          betas=optim_config.get('betas', (0.9, 0.999)),
-                                          weight_decay=optim_config.get('weight_decay', 1e-2))
+
+            # 8-bit 옵티마이저를 사용하기 위한 로직 추가
+            if optim_config.get('name', 'adamw') == 'adamw_8bit':
+                try:
+                    import bitsandbytes.optim as bnb_optim
+                    print("Using 8-bit AdamW optimizer.")
+                    actor_optimizer = bnb_optim.AdamW8bit(
+                        actor_module_fsdp.parameters(),
+                        lr=optim_config.lr,
+                        betas=optim_config.get('betas', (0.9, 0.999)),
+                        weight_decay=optim_config.get('weight_decay', 1e-2))
+                except ImportError:
+                    print("bitsandbytes not installed. Falling back to regular AdamW.")
+                    actor_optimizer = optim.AdamW(
+                        actor_module_fsdp.parameters(),
+                        lr=optim_config.lr,
+                        betas=optim_config.get('betas', (0.9, 0.999)),
+                        weight_decay=optim_config.get('weight_decay', 1e-2))
+            else: # 기본값은 일반 AdamW
+                actor_optimizer = optim.AdamW(
+                    actor_module_fsdp.parameters(),
+                    lr=optim_config.lr,
+                    betas=optim_config.get('betas', (0.9, 0.999)),
+                    weight_decay=optim_config.get('weight_decay', 1e-2))
+            ##############추가 완료#########
 
             total_steps = optim_config.get('total_training_steps', 0)
             num_warmup_steps = int(optim_config.get('lr_warmup_steps', -1))
@@ -438,6 +471,7 @@ class ActorRolloutRefWorker(Worker):
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_actor(self, data: DataProto):
         # Support all hardwares
+
         data = data.to(torch.cuda.current_device())
 
         assert self._is_actor
@@ -486,6 +520,7 @@ class ActorRolloutRefWorker(Worker):
         # Support all hardwares
         prompts = prompts.to(torch.cuda.current_device())
 
+
         assert self._is_rollout
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
@@ -523,6 +558,7 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_log_prob(self, data: DataProto):
+        
         assert self._is_actor
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
@@ -539,7 +575,7 @@ class ActorRolloutRefWorker(Worker):
             data = self.ulysses_sharding_manager.preprocess_data(data)
             output = self.actor.compute_log_prob(data=data)
             output = DataProto.from_dict(tensors={'old_log_probs': output},
-                                         meta_info={'temperature': self.config.rollout.temperature})
+                                        meta_info={'temperature': self.config.rollout.temperature})
             output = self.ulysses_sharding_manager.postprocess_data(output)
 
         output = output.to('cpu')

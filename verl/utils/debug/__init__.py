@@ -12,4 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .performance import log_gpu_memory_usage
+#from .performance import log_gpu_memory_usage
+from .performance import GPUMemoryStats, gpu_memory_phase, log_gpu_memory_usage, phase
+
+__all__ = [
+    "GPUMemoryStats",
+    "gpu_memory_phase",
+    "log_gpu_memory_usage",
+    "phase",
+]

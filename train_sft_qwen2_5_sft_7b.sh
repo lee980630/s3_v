@@ -1,0 +1,9 @@
+torchrun --nproc_per_node=2 -m verl.trainer.fsdp_sft_trainer \
+  data.train_files=data/rag/train.parquet \
+  data.val_files=data/rag/val.parquet \
+  model.partial_pretrain=Qwen/Qwen2.5-VL-7B-Instruct \
+  trainer.default_local_dir=outputs/sft-test \
+  data.prompt_key=prompt \
+  data.response_key=response \
+  model.trust_remote_code=true \
+  trainer.total_epochs=1 | tee logs/sft.log

@@ -84,13 +84,13 @@ class VL_Embedding(MultiModalEmbedding):
             self.embed_model = AutoModel.from_pretrained(model,
              torch_dtype=torch.bfloat16,
             trust_remote_code=True,
-            device_map='cuda:1').cuda().eval()
+            device_map='cuda:2').cuda().eval() #0 ->2 수정
             # self.embed_model.eval()
         elif 'vidore' in model and 'qwen' in model:
             self.embed_model = ColQwen2.from_pretrained(
                 model,
                 torch_dtype=torch.bfloat16,
-                device_map='cuda:1',  # or "mps" if on Apple Silicon
+                device_map='cuda:2',  # or "mps" if on Apple Silicon 수정
             ).eval()
             self.processor = ColQwen2Processor.from_pretrained(model)
         elif 'vidore' in model and 'pali' in model:
@@ -228,7 +228,7 @@ class VL_Embedding(MultiModalEmbedding):
 
 if __name__ == "__main__":
     colpali = VL_Embedding("vidore/colqwen2-v1.0")
-    image_embeddings = colpali.embed_img("./search_engine/img/0b85477387a9d0cc33fca0f4becaa0e5_1.jpg")
+    image_embeddings = colpali.embed_img("./search_engine/corpus/img/hello_world.jpg")
     text_embeddings = colpali.embed_text("Hello, world!")
     score = colpali.processor.score_multi_vector(image_embeddings, text_embeddings)
     print(score)

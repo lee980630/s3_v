@@ -48,6 +48,7 @@ class LLMGenerator:
                 {"role": "user", "content": DEFAULT_SYSTEM_TEMPLATE.replace("{query}", prompt["query"]).replace("{reference_answer}", prompt["reference_answer"]).replace("{generated_answer}", prompt["generated_answer"])}
             ]
             messages_batch.append(messages)
+
         text = self.tokenizer.apply_chat_template(
             messages_batch,
             tokenize=False,

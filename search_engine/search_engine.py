@@ -80,7 +80,7 @@ class SearchEngine:
 
 if __name__ == '__main__':
     search_engine = SearchEngine(dataset_dir='search_engine/corpus',embed_model_name='vidore/colqwen2-v1.0')
-    print(search_engine.batch_search(['o','a']))
+    print(search_engine.batch_search(['travel market in APAC by 2020']))
     
 
     
