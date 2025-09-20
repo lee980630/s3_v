@@ -1,3 +1,5 @@
+#gpu 사용량 측정 수정 
+
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,10 +17,8 @@
 FSDP PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
-#######gpu 측정 추가 ###
-import torch
-from torch.profiler import profile, record_function, ProfilerActivity, tensorboard_trace_handler
-######
+
+
 import os
 import uuid
 from contextlib import contextmanager
@@ -47,6 +47,14 @@ from torch.utils.data import RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 import re
 from vrag_agent.generation import LLMGenerationManager, GenerationConfig
+
+
+#수정 추가 gpu
+import sys
+sys.path.append('.') 
+from lsm_tmp.gpu_monitor import GPUMonitor
+from datetime import datetime
+#
 
 WorkerType = Type[Worker]
 
@@ -783,177 +791,174 @@ class RayPPOTrainer(object):
 
         # start training loop
         for epoch in range(self.config.trainer.total_epochs):
+            #gpu 수정 추가
+            current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_filename = f"./logs/performance_log_{current_time}.txt"                 
+            #
             for batch_dict in self.train_dataloader:
-                # ####### 1. 프로파일러(CCTV) 녹화 시작 지점 ####### 수정 추가 gpu 측정
-                # ./profiler_logs 폴더에 로그가 저장됩니다.
-                with profile(
-                    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                    profile_memory=True,
-                    record_shapes=True,
-                    on_trace_ready=tensorboard_trace_handler("./logs/gpu_memory_log")
-                 ) as prof:
-                    # --------------------------------------------------------------------
+                metrics = {}
+                timing_raw = {}
 
-                    metrics = {}
-                    timing_raw = {}
+                batch: DataProto = DataProto.from_single_dict(batch_dict)
+                gen_batch = batch.repeat_deepcopy(repeat_times=self.config.actor_rollout_ref.rollout.n_agent, interleave=True)
 
-                    batch: DataProto = DataProto.from_single_dict(batch_dict)
-                    gen_batch = batch.repeat_deepcopy(repeat_times=self.config.actor_rollout_ref.rollout.n_agent, interleave=True)
+                # pop those keys for generation
+                if 'multi_modal_inputs' in gen_batch.non_tensor_batch.keys():
+                    gen_batch = gen_batch.pop(
+                        batch_keys=['input_ids', 'attention_mask', 'position_ids'],
+                        non_tensor_batch_keys=['id','raw_prompt_ids', 'multi_modal_data', 'multi_modal_inputs'],
+                    )
+                else:
+                    gen_batch = gen_batch.pop(
+                        batch_keys=['input_ids', 'attention_mask', 'position_ids'],
+                        non_tensor_batch_keys=['id','raw_prompt_ids'],
+                    )
 
-                    # pop those keys for generation
-                    if 'multi_modal_inputs' in gen_batch.non_tensor_batch.keys():
-                        gen_batch = gen_batch.pop(
-                            batch_keys=['input_ids', 'attention_mask', 'position_ids'],
-                            non_tensor_batch_keys=['id','raw_prompt_ids', 'multi_modal_data', 'multi_modal_inputs'],
+                is_last_step = self.global_steps >= self.total_training_steps
+
+                ####################
+                # Below is aLL about agents - the "LLM + forloop"
+                ####################
+                with _timer('step', timing_raw):
+                    # first_input_ids = gen_batch.batch['input_ids'][:, -gen_config.max_start_length:].clone().long()
+                    first_input_ids = gen_batch.batch['input_ids'].clone().long()
+                    with _timer('gen', timing_raw):
+                        #수정 추가 gpu
+                        # ===== [수정 시작 1/2]: Generation 구간 측정 =====
+                        print("\n\n>>> [작업 1/2] Generation 단계 성능을 측정합니다...")
+                        gen_monitor = GPUMonitor()
+                        gen_monitor = GPUMonitor(log_file=log_filename, labe = "Generation")
+                        gen_monitor.start()
+                        ###
+                        generation_manager.timing_raw = timing_raw
+                        final_gen_batch_output = generation_manager.run_llm_loop(
+                            gen_batch=gen_batch,
+                            initial_input_ids=first_input_ids,
                         )
-                    else:
-                        gen_batch = gen_batch.pop(
-                            batch_keys=['input_ids', 'attention_mask', 'position_ids'],
-                            non_tensor_batch_keys=['id','raw_prompt_ids'],
-                        )
+                        gen_monitor.stop() #수정 추가 gpu 
 
-                    is_last_step = self.global_steps >= self.total_training_steps
+                    # final_gen_batch_output.batch.apply(lambda x: x.long(), inplace=True)
+                    for key in final_gen_batch_output.batch.keys():
+                        final_gen_batch_output.batch[key] = final_gen_batch_output.batch[key].long()
+                    
+                    batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
 
-                    ####################
-                    # Below is aLL about agents - the "LLM + forloop"
-                    ####################
-                    with _timer('step', timing_raw):
-                        # first_input_ids = gen_batch.batch['input_ids'][:, -gen_config.max_start_length:].clone().long()
+                    batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
+                    # repeat to align with repeated responses in rollout
+                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n_agent, interleave=True)
+                    batch = batch.union(final_gen_batch_output)
 
+                    # special design for RAG dataset for reward func
+                    extra_info_list = []
+                    for file_name, reference_page, extra_info in zip(batch.non_tensor_batch['file_name'], batch.non_tensor_batch['reference_page'], batch.non_tensor_batch['extra_info']):
+                        extra_info_list.append(dict(file_name=file_name, reference_page=reference_page, question=extra_info['question'], answer=extra_info['answer']))
+                    batch.non_tensor_batch['extra_info'] = np.array(extra_info_list)
+                    for idx in range(len(batch.non_tensor_batch['raw_prompt_ids'])):
+                        batch.non_tensor_batch['raw_prompt_ids'][idx] = [int(item) for item in batch.non_tensor_batch['raw_prompt_ids'][idx]]
                         
-                        with record_function("Rollout_and_Generation"): # ####### 2. 이름표(Tag) 붙이기: Rollout & Generation ####### 수정 추가 gpu 측정
 
-                            first_input_ids = gen_batch.batch['input_ids'].clone().long()
-                            with _timer('gen', timing_raw):
-                                generation_manager.timing_raw = timing_raw
-                                final_gen_batch_output = generation_manager.run_llm_loop(
-                                    gen_batch=gen_batch,
-                                    initial_input_ids=first_input_ids,
-                                )
+                    # balance the number of valid tokens on each dp rank.
+                    # Note that this breaks the order of data inside the batch.
+                    # Please take care when you implement group based adv computation such as GRPO and rloo
+                    if self.config.trainer.balance_batch:
+                        self._balance_batch(batch, metrics=metrics)
 
+                    # compute global_valid tokens
+                    batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
+                    # recompute old_log_probs
+                    with _timer('old_log_prob', timing_raw):
+                        with torch.no_grad():
+                            print('========= compute log prob =========')
+                            old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                            batch = batch.union(old_log_prob)
 
-                        # final_gen_batch_output.batch.apply(lambda x: x.long(), inplace=True)
-                        for key in final_gen_batch_output.batch.keys():
-                            final_gen_batch_output.batch[key] = final_gen_batch_output.batch[key].long()
-                        
-                        batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
+                    for key in batch.batch.keys():
+                        if key != 'old_log_probs':
+                            batch.batch[key] = batch.batch[key].long()
 
-                        batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object)
-                        # repeat to align with repeated responses in rollout
-                        batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n_agent, interleave=True)
-                        batch = batch.union(final_gen_batch_output)
+                    if self.use_reference_policy:
+                        # compute reference log_prob
+                        print('===============ref log prob==================')
+                        with _timer('ref', timing_raw):
+                            ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
+                            batch = batch.union(ref_log_prob)
 
-                        # special design for RAG dataset for reward func
-                        extra_info_list = []
-                        for file_name, reference_page, extra_info in zip(batch.non_tensor_batch['file_name'], batch.non_tensor_batch['reference_page'], batch.non_tensor_batch['extra_info']):
-                            extra_info_list.append(dict(file_name=file_name, reference_page=reference_page, question=extra_info['question'], answer=extra_info['answer']))
-                        batch.non_tensor_batch['extra_info'] = np.array(extra_info_list)
-                        for idx in range(len(batch.non_tensor_batch['raw_prompt_ids'])):
-                            batch.non_tensor_batch['raw_prompt_ids'][idx] = [int(item) for item in batch.non_tensor_batch['raw_prompt_ids'][idx]]
+                    # compute values
+                    if self.use_critic:
+                        with _timer('values', timing_raw):
+                            values = self.critic_wg.compute_values(batch)
+                            batch = batch.union(values)
+
+                    with _timer('adv', timing_raw):
+                        # compute scores. Support both model and function-based.
+                        # We first compute the scores using reward model. Then, we call reward_fn to combine
+                        # the results from reward model and rule-based results.
+                        if self.use_rm:
+                            # we first compute reward model score
+                            reward_tensor = self.rm_wg.compute_rm_score(batch)
+                            batch = batch.union(reward_tensor)
+
+                        # we combine with rule-based rm
+                        reward_tensor = self.reward_fn(batch)   #설명:생성된 답변 점수를 미기기 위해 호출 
+                        batch.batch['token_level_scores'] = reward_tensor
+
+                        # compute rewards. apply_kl_penalty if available
+                        if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
+                            batch, kl_metrics = apply_kl_penalty(batch,
+                                                                kl_ctrl=self.kl_ctrl,
+                                                                kl_penalty=self.config.algorithm.kl_penalty)
+                            metrics.update(kl_metrics)
+                        else:
+                            batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
+
+                        # compute advantages, executed on the driver process
+                        print('========= compute advantage =========')
+                        batch = compute_advantage(batch,
+                                                adv_estimator=self.config.algorithm.adv_estimator,
+                                                gamma=self.config.algorithm.gamma,
+                                                lam=self.config.algorithm.lam,
+                                                num_repeat=self.config.actor_rollout_ref.rollout.n_agent)
+                        print('========= compute advantage done =========')
+
+                    # update critic
+                    if self.use_critic:
+                        with _timer('update_critic', timing_raw):
+                            critic_output = self.critic_wg.update_critic(batch)
+                        critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
+                        metrics.update(critic_output_metrics)
+
+                    # implement critic warmup
+                    if self.config.trainer.critic_warmup <= self.global_steps:
+                        # update actor
+                        with _timer('update_actor', timing_raw):
+
+                            # 수정 추가 gpu
+                            print("\n>>> [작업 2/2] Actor Update (학습) 단계 성능을 측정합니다...")
+                            actor_monitor = GPUMonitor()
+                            actor_monitor = GPUMonitor(log_file=log_filename, label = "Actor Update") 
+                            actor_monitor.start()
+                            #
+                            batch, metrics = self._create_loss_mask(batch, metrics)                            
+                            actor_output = self.actor_rollout_wg.update_actor(batch)
+                            actor_monitor.stop() #수정 추가 gpu 
                             
+                        actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
+                        metrics.update(actor_output_metrics)
 
-                        # balance the number of valid tokens on each dp rank.
-                        # Note that this breaks the order of data inside the batch.
-                        # Please take care when you implement group based adv computation such as GRPO and rloo
-                        if self.config.trainer.balance_batch:
-                            self._balance_batch(batch, metrics=metrics)
-
-                        # compute global_valid tokens
-                        batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
-
-                        # recompute old_log_probs
-                        with _timer('old_log_prob', timing_raw):
-                            with torch.no_grad():
-                                print('========= compute log prob =========')
-                                old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-                                batch = batch.union(old_log_prob)
-
-                        for key in batch.batch.keys():
-                            if key != 'old_log_probs':
-                                batch.batch[key] = batch.batch[key].long()
-
-                        if self.use_reference_policy:
-                            # compute reference log_prob
-                            print('===============ref log prob==================')
-                            with _timer('ref', timing_raw):
-                                ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
-                                batch = batch.union(ref_log_prob)
-
-                        # compute values
-                        if self.use_critic:
-                            with _timer('values', timing_raw):
-                                values = self.critic_wg.compute_values(batch)
-                                batch = batch.union(values)
-
-                        with _timer('adv', timing_raw):
-                            # compute scores. Support both model and function-based.
-                            # We first compute the scores using reward model. Then, we call reward_fn to combine
-                            # the results from reward model and rule-based results.
-                            if self.use_rm:
-                                # we first compute reward model score
-                                reward_tensor = self.rm_wg.compute_rm_score(batch)
-                                batch = batch.union(reward_tensor)
-
-                            # we combine with rule-based rm
-                            reward_tensor = self.reward_fn(batch)   #설명:생성된 답변 점수를 미기기 위해 호출 
-                            batch.batch['token_level_scores'] = reward_tensor
-
-                            # compute rewards. apply_kl_penalty if available
-                            if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
-                                batch, kl_metrics = apply_kl_penalty(batch,
-                                                                    kl_ctrl=self.kl_ctrl,
-                                                                    kl_penalty=self.config.algorithm.kl_penalty)
-                                metrics.update(kl_metrics)
-                            else:
-                                batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
-
-                            # compute advantages, executed on the driver process
-                            print('========= compute advantage =========')
-                            batch = compute_advantage(batch,
-                                                    adv_estimator=self.config.algorithm.adv_estimator,
-                                                    gamma=self.config.algorithm.gamma,
-                                                    lam=self.config.algorithm.lam,
-                                                    num_repeat=self.config.actor_rollout_ref.rollout.n_agent)
-                            print('========= compute advantage done =========')
-
-                        # update critic
-                        if self.use_critic:
-                            with _timer('update_critic', timing_raw):
-                                critic_output = self.critic_wg.update_critic(batch)
-                            critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
-                            metrics.update(critic_output_metrics)
-
-                        # implement critic warmup
-                        if self.config.trainer.critic_warmup <= self.global_steps:
-                            # update actor
-
-                            with record_function("Actor_Update_(BACKPROPAGATION)"): #수정 추가 gpu 측종
-                                with _timer('update_actor', timing_raw):
-                                    batch, metrics = self._create_loss_mask(batch, metrics)                            
-                                    actor_output = self.actor_rollout_wg.update_actor(batch)
-
-                            actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
-                            metrics.update(actor_output_metrics)
-
-                #추가 gpu 측정 수정            
-                print("--- Profiler Result (Sorted by CUDA Memory Usage) ---")
-                print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=15))      
-                #######                  
-
-                if self.config.trainer.save_freq > 0 and ( is_last_step or \
-                        self.global_steps % self.config.trainer.save_freq == 0):
-                    with _timer('save_checkpoint', timing_raw):
-                        self._save_checkpoint()
-                        
-                # validate
-                if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and \
-                    (is_last_step or  self.global_steps % self.config.trainer.test_freq == 0):
-                    with _timer('testing', timing_raw):
-                        val_metrics: dict = self._validate()
-                        if is_last_step:
-                            last_val_metrics = val_metrics
-                    metrics.update(val_metrics)
+                    if self.config.trainer.save_freq > 0 and ( is_last_step or \
+                            self.global_steps % self.config.trainer.save_freq == 0):
+                        with _timer('save_checkpoint', timing_raw):
+                            self._save_checkpoint()
+                            
+                    # validate
+                    if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and \
+                        (is_last_step or  self.global_steps % self.config.trainer.test_freq == 0):
+                        with _timer('testing', timing_raw):
+                            val_metrics: dict = self._validate()
+                            if is_last_step:
+                                last_val_metrics = val_metrics
+                        metrics.update(val_metrics)
 
 
                 # collect metrics
@@ -972,6 +977,7 @@ class RayPPOTrainer(object):
 
                 self.global_steps += 1
     # mask user and last noisy
+
     def _create_loss_mask(self, batch, metrics):
         """Create loss mask for state tokens."""
         response_length = batch.batch['responses'].shape[-1]
