@@ -38,8 +38,7 @@ n_agent=5 #수정
 
 tensor_model_parallel_size=2
 val_before_train=False
-#search_url="http://0.0.0.0:8002/search"
-search_url='http://127.0.0.1:5000/search'
+search_url="http://0.0.0.0:8002/search"
 rm_url="http://0.0.0.0:8003/eval"
 max_turns=4
 project_name="vrag"
