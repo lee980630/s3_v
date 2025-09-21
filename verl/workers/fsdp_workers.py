@@ -167,11 +167,22 @@ class ActorRolloutRefWorker(Worker):
         self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
         self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
 
-        torch_dtype = fsdp_config.get('model_dtype', None)
-        if torch_dtype is None:
-            torch_dtype = torch.float32 if self._is_actor else torch.bfloat16
+        #수정 제거 bf
+        # torch_dtype = fsdp_config.get('model_dtype', None)
+        # if torch_dtype is None:
+        #     torch_dtype = torch.float32 if self._is_actor else torch.bfloat16
+        ##
+        #수정 추가 bf
+        requested_dtype = fsdp_config.get('model_dtype', None)
+        if requested_dtype is None:
+            # FlashAttention 2 kernels expect low precision inputs. Default to bf16
+            # when no explicit dtype is provided to avoid dtype mismatches while
+            # still allowing overrides via fsdp_config.model_dtype.
+            torch_dtype = torch.bfloat16        
+        ##
         else:
-            torch_dtype = PrecisionType.to_dtype(torch_dtype)
+            #torch_dtype = PrecisionType.to_dtype(torch_dtype) #수정 제거 bf16
+            torch_dtype = PrecisionType.to_dtype(requested_dtype) #수정 추가 bf16
 
         # override model kwargs
         actor_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)

@@ -827,7 +827,7 @@ class RayPPOTrainer(object):
                         # ===== [수정 시작 1/2]: Generation 구간 측정 =====
                         print("\n\n>>> [작업 1/2] Generation 단계 성능을 측정합니다...")
                         gen_monitor = GPUMonitor()
-                        gen_monitor = GPUMonitor(log_file=log_filename, labe = "Generation")
+                        gen_monitor = GPUMonitor(log_file=log_filename, label = "Generation")
                         gen_monitor.start()
                         ###
                         generation_manager.timing_raw = timing_raw

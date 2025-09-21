@@ -56,7 +56,7 @@ class GPUMonitor:
         total_mem = nvmlDeviceGetMemoryInfo(self.handle).total / (1024**2)
 
         log_message = (
-            f"--- {self.label} ---\n"
+            f"--- {self.label} 결과---\n"
             f"  - 소요 시간: {duration:.4f} 초\n"
             f"  - 평균 GPU 사용률: {avg_gpu_util:.2f}% (최대: {max_gpu_util:.2f}%)\n"
             f"  - 평균 VRAM 사용량: {avg_mem_used:.2f} MB (최대: {max_mem_used:.2f} MB) / 총 {total_mem:.2f} MB\n"
