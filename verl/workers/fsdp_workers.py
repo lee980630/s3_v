@@ -164,8 +164,8 @@ class ActorRolloutRefWorker(Worker):
 
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
         # TODO(zhangchi.usc1992): 1. support create from random initialized model. 2. Support init with FSDP directly
-        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
-        self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
+        self.tokenizer = hf_tokenizer(local_path, use_fast=True,trust_remote_code=trust_remote_code) #수정 use_fast=True추가
+        self.processor = hf_processor(local_path, use_fast=True,trust_remote_code=trust_remote_code) #수정 use_fast=True 추가
 
         #수정 제거 bf
         # torch_dtype = fsdp_config.get('model_dtype', None)
@@ -283,7 +283,7 @@ class ActorRolloutRefWorker(Worker):
 
         log_gpu_memory_usage('After Actor FSDP init', logger=logger)
 
-        # 수정
+        # 수정 adam8
         # TODO: add more optimizer args into config
         # if role == 'actor' and optim_config is not None:
         #     from verl.utils.torch_functional import get_constant_schedule_with_warmup
@@ -716,8 +716,8 @@ class CriticWorker(Worker):
         # using random initialized model from any architecture. May not be the same as Actor.
 
         tokenizer_path = copy_to_local(config.model.tokenizer_path)
-        self.tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=config.model.get('trust_remote_code', False))
-        self.processor = hf_processor(tokenizer_path, trust_remote_code=config.model.get('trust_remote_code', False))
+        self.tokenizer = hf_tokenizer(tokenizer_path, use_fast=True,trust_remote_code=config.model.get('trust_remote_code', False)) #수정 use_fast=True추가
+        self.processor = hf_processor(tokenizer_path, use_fast=True, trust_remote_code=config.model.get('trust_remote_code', False))# 수정 use_fast=True 추가
 
         from omegaconf import OmegaConf
         override_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
@@ -993,8 +993,9 @@ class RewardModelWorker(Worker):
             self._do_switch_chat_template = True
             input_tokenizer_local_path = copy_to_local(config.model.input_tokenizer)
             self.input_tokenizer = hf_tokenizer(input_tokenizer_local_path,
-                                                trust_remote_code=config.model.get('trust_remote_code', False))
-            self.tokenizer = hf_tokenizer(local_path, trust_remote_code=config.model.get('trust_remote_code', False))
+                                                use_fast=True,
+                                                trust_remote_code=config.model.get('trust_remote_code', False)) #수정 use_fast=True 추사
+            self.tokenizer = hf_tokenizer(local_path, use_fast=True,trust_remote_code=config.model.get('trust_remote_code', False))#수정 use_fast=True 추가
 
         trust_remote_code = config.model.get('trust_remote_code', False)
         model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)

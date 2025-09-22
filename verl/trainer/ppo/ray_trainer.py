@@ -499,7 +499,8 @@ class RayPPOTrainer(object):
 
         self.train_dataloader = StatefulDataLoader(dataset=self.train_dataset,
                                                    batch_size=self.config.data.train_batch_size,
-                                                   num_workers=8,
+                                                   #num_workers=8, #수정 병목 해결
+                                                   num_workers=16,
                                                    drop_last=True,
                                                    collate_fn=collate_fn,
                                                    sampler=sampler)
@@ -523,7 +524,8 @@ class RayPPOTrainer(object):
             # which will schedule the memory themselves.
             # batch_size=len(self.val_dataset),
             batch_size=505,
-            num_workers=8,
+            #num_workers=8,
+            num_workers=16, #수정 병목 해결
             shuffle=False,
             drop_last=False,
             collate_fn=collate_fn)
