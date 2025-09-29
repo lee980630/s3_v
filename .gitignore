@@ -1,6 +1,7 @@
 
 data
 test.sh
+**/corpus
 
 **/*.pt
 **/checkpoints

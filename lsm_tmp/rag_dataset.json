@@ -1,245 +1,293 @@
 {
   "examples": [
     {
-      "uid": "train_0",
-      "query": "When did the Alibaba Cloud data center network start?",
-      "meta_info": {
-        "file_name": "aliyun4_4.jpg",
-        "reference_page": [4],
-        "query_type": "Fact-based"
-      },
-      "reference_answer": "2009"
-    },
-    {
-      "uid": "train_1",
-      "query": "What are the three main benefits of migrating IT systems to the cloud?",
-      "meta_info": {
-        "file_name": "aliyun4_5.jpg",
-        "reference_page": [5],
-        "query_type": "List"
-      },
-      "reference_answer": "Elasticity, pay-as-you-go, and flexible deployment"
-    },
-    {
       "uid": "train_2",
-      "query": "Which data center network product is described as 'a data center on the user's cloud'?",
+      "query": "Which is used more for payment in India in 2013, Credit Cards or Debit Cards?",
       "meta_info": {
-        "file_name": "aliyun4_6.jpg",
-        "reference_page": [6],
+        "file_name": "2.pdf",
+        "reference_page": [
+          7
+        ],
         "query_type": "Fact-based"
       },
-      "reference_answer": "Private Network VPC (专有网络 VPC)"
-    },
-    {
-      "uid": "train_3",
-      "query": "What are the four core competencies that need to be continuously built?",
-      "meta_info": {
-        "file_name": "aliyun4_7.jpg",
-        "reference_page": [7],
-        "query_type": "List"
-      },
-      "reference_answer": "Security, Stability, Performance, Cost"
+      "reference_answer": "Credit Cards"
     },
     {
       "uid": "train_4",
-      "query": "What is the title of the second main section of this presentation?",
+      "query": "How many online shopping orders are made per month in CY2013 in India?",
       "meta_info": {
-        "file_name": "aliyun4_8.jpg",
-        "reference_page": [8],
+        "file_name": "4.pdf",
+        "reference_page": [
+          11
+        ],
         "query_type": "Fact-based"
       },
-      "reference_answer": "Major product launch focusing on security/stability/performance/cost"
+      "reference_answer": "5M"
     },
     {
       "uid": "train_5",
-      "query": "In the diagram aliyun4_9.jpg, what is the IP address range for On-Premises 4?",
+      "query": "What is the MAIN DISADVANTAGE of INERT GAS?",
       "meta_info": {
-        "file_name": "aliyun4_9.jpg",
-        "reference_page": [9],
-        "query_type": "Diagram-based"
+        "file_name": "5.pdf",
+        "reference_page": [
+          4
+        ],
+        "query_type": "Fact-based"
       },
-      "reference_answer": "10.0.3.0/24"
-    },
-    {
-      "uid": "train_6",
-      "query": "What are the three main application scenarios for using PrivateLink?",
-      "meta_info": {
-        "file_name": "aliyun4_10.jpg",
-        "reference_page": [10],
-        "query_type": "List"
-      },
-      "reference_answer": "Private access to cloud services, service-oriented enterprise IT architecture, and publishing third-party services in a VPC"
+      "reference_answer": "POSES A GRAVE HEALTH HAZARD"
     },
     {
       "uid": "train_7",
-      "query": "In what year did VPC start supporting IPv6?",
+      "query": "What can Provision of an IGS do?",
       "meta_info": {
-        "file_name": "aliyun4_4.jpg",
-        "reference_page": [4],
+        "file_name": "7.pdf",
+        "reference_page": [
+          2
+        ],
         "query_type": "Fact-based"
       },
-      "reference_answer": "2019"
+      "reference_answer": "give absolute control"
     },
     {
       "uid": "train_8",
-      "query": "What is the main topic of the presentation on the title slide?",
+      "query": "What does an OXYGEN ANALYSER do?",
       "meta_info": {
-        "file_name": "aliyun4_1.jpg",
-        "reference_page": [1],
+        "file_name": "8.pdf",
+        "reference_page": [
+          5
+        ],
         "query_type": "Fact-based"
       },
-      "reference_answer": "A more secure and reliable data center network"
+      "reference_answer": "Measures OXYGEN by % volume"
     },
     {
       "uid": "train_9",
-      "query": "What is the first item listed in the table of contents?",
+      "query": "What are the Lower and Upper Limits in Air % by Volume for Propane?",
       "meta_info": {
-        "file_name": "aliyun4_2.jpg",
-        "reference_page": [2],
+        "file_name": "9.pdf",
+        "reference_page": [
+          8
+        ],
         "query_type": "Fact-based"
       },
-      "reference_answer": "01 Challenges facing data center networks"
-    },
-    {
-      "uid": "train_10",
-      "query": "What is the title of the presentation's first section?",
-      "meta_info": {
-        "file_name": "aliyun4_3.jpg",
-        "reference_page": [3],
-        "query_type": "Fact-based"
-      },
-      "reference_answer": "Challenges facing data center networks"
-    },
-    {
-      "uid": "train_11",
-      "query": "What are the primary advantages of moving an entire enterprise system to the cloud?",
-      "meta_info": {
-        "file_name": "aliyun4_5.jpg",
-        "reference_page": [5],
-        "query_type": "List"
-      },
-      "reference_answer": "Intelligence and Cost"
-    },
-    {
-      "uid": "train_12",
-      "query": "What product is offered to provide network address translation services?",
-      "meta_info": {
-        "file_name": "aliyun4_6.jpg",
-        "reference_page": [6],
-        "query_type": "Fact-based"
-      },
-      "reference_answer": "NAT Gateway"
+      "reference_answer": "2.2, 9.5"
     },
     {
       "uid": "train_13",
-      "query": "What user pain points does PrivateLink address?",
+      "query": "How many minutes does Hive take to process 1hr of Site Activity Data?",
       "meta_info": {
-        "file_name": "aliyun4_10.jpg",
-        "reference_page": [10],
-        "query_type": "List"
+        "file_name": "13.pdf",
+        "reference_page": [
+          13
+        ],
+        "query_type": "Fact-based"
       },
-      "reference_answer": "Higher security requirements, increased complexity in business and operations, and high-quality demands for complex application access."
+      "reference_answer": "18"
     },
     {
       "uid": "train_14",
-      "query": "According to the timeline, what product was released in 2020?",
+      "query": "What is the Kodak Brownie Snap-Shot Camera?",
       "meta_info": {
-        "file_name": "aliyun4_4.jpg",
-        "reference_page": [4],
+        "file_name": "14.pdf",
+        "reference_page": [
+          7
+        ],
         "query_type": "Fact-based"
       },
-      "reference_answer": "Enhanced NAT Gateway"
+      "reference_answer": "first easy to use point and shoot"
     },
     {
-      "uid": "train_15",
-      "query": "Who is the presenter and what is their title?",
+      "uid": "train_16",
+      "query": "What are examples of Internet Verbs?",
       "meta_info": {
-        "file_name": "aliyun4_1.jpg",
-        "reference_page": [1],
+        "file_name": "16.pdf",
+        "reference_page": [
+          12
+        ],
         "query_type": "Fact-based"
       },
-      "reference_answer": "Peng Ximin, Senior Product Expert, Alibaba Cloud Network"
+      "reference_answer": "Send, Mention, Like, Link, Reply, Rate, Review, Favorite, Friend, Follow, Forward, Edit, Tag, Comment, Check-in"
     },
     {
-  "uid": "train_16",
-  "query": "What is the main theme of the presentation shown on the title slide?",
-  "meta_info": {
-    "file_name": "slide_1_1024.jpg",
-    "reference_page": [1],
-    "query_type": "Summary-based"
-  },
-  "reference_answer": "APAC online travel market and the search for 'superconsumers'"
-},
-{
-  "uid": "train_17",
-  "query": "Who is the presenter of this presentation?",
-  "meta_info": {
-    "file_name": "slide_1_1024.jpg",
-    "reference_page": [1],
-    "query_type": "Fact-based"
-  },
-  "reference_answer": "Sushant Sharma"
-},
-{
-  "uid": "train_18",
-  "query": "According to the second slide, how is the APAC market characterized?",
-  "meta_info": {
-    "file_name": "slide_2_1024.jpg",
-    "reference_page": [2],
-    "query_type": "Summary-based"
-  },
-  "reference_answer": "One region, but with many different markets"
-},
-{
-  "uid": "train_19",
-  "query": "By 2020, which five countries are expected to power the outbound travel market in APAC?",
-  "meta_info": {
-    "file_name": "slide_3_1024.jpg",
-    "reference_page": [3],
-    "query_type": "Fact-based"
-  },
-  "reference_answer": "China, South Korea, Japan, India, and Malaysia"
-},
-{
-  "uid": "train_20",
-  "query": "What household income level marks the inflection point for international outbound leisure travel in developing APAC markets?",
-  "meta_info": {
-    "file_name": "slide_4_1024.jpg",
-    "reference_page": [4],
-    "query_type": "Fact-based"
-  },
-  "reference_answer": "US$10,000 household income"
-},
-{
-  "uid": "train_21",
-  "query": "What is the main barrier to enabling mobile bookings in emerging markets according to the presentation?",
-  "meta_info": {
-    "file_name": "slide_6_1024.jpg",
-    "reference_page": [6],
-    "query_type": "Summary-based"
-  },
-  "reference_answer": "Lack of local payment options and ease of payment issues"
-},
-{
-  "uid": "train_22",
-  "query": "Which traveller segment is expected to emerge strongly, driven by business travellers?",
-  "meta_info": {
-    "file_name": "slide_7_1024.jpg",
-    "reference_page": [7],
-    "query_type": "Summary-based"
-  },
-  "reference_answer": "Female travellers"
-},
-{
-  "uid": "train_23",
-  "query": "According to the presentation, which two countries have the lowest propensity to travel internationally in their respective APAC categories?",
-  "meta_info": {
-    "file_name": "slide_5_1024.jpg",
-    "reference_page": [5],
-    "query_type": "Fact-based"
-  },
-  "reference_answer": "Japan (developed) and India (developing)"
-}
-
+      "uid": "train_17",
+      "query": "What is the source of the map?",
+      "meta_info": {
+        "file_name": "17.pdf",
+        "reference_page": [
+          18
+        ],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "Zillow.com"
+    },
+    {
+      "uid": "train_19",
+      "query": "How many people does KMC MAG Group employ?",
+      "meta_info": {
+        "file_name": "19.pdf",
+        "reference_page": [
+          3
+        ],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "Over 100"
+    },
+    {
+      "uid": "train_20",
+      "query": "What is the CAPEX of listed RE Developers in 2014 in Billions?",
+      "meta_info": {
+        "file_name": "20.pdf",
+        "reference_page": [
+          8
+        ],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "6.0"
+    },
+    {
+      "uid": "train_21",
+      "query": "Which city has the lowest Grade A Office Cap Rate?",
+      "meta_info": {
+        "file_name": "21.pdf",
+        "reference_page": [
+          19
+        ],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "Taipei"
+    },
+    {
+      "uid": "train_22",
+      "query": "What percentage is the Grade A Office Cap Rate in Tokyo?",
+      "meta_info": {
+        "file_name": "22.pdf",
+        "reference_page": [
+          19
+        ],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "3.65"
+    },
+    {
+      "uid": "train_23",
+      "query": "What percentage is the Grade A Office Cap Rate in the city in Japan where there is a Savills office?",
+      "meta_info": {
+        "file_name": "23.pdf",
+        "reference_page": [
+          4,
+          19
+        ],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "3.65"
+    },
+    {
+      "uid": "train_24",
+      "query": "How many Tools You Can Use are there?",
+      "meta_info": {
+        "file_name": "24.pdf",
+        "reference_page": [
+          3
+        ],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "12"
+    },
+    {
+      "uid": "train_25",
+      "query": "What is futureworkplace's motto?",
+      "meta_info": {
+        "file_name": "25.pdf",
+        "reference_page": [
+          7
+        ],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "innovations to attract, develop and keep talent"
+    },
+    {
+      "uid": "train_26",
+      "query": "What positions does the category Executives include?",
+      "meta_info": {
+        "file_name": "26.pdf",
+        "reference_page": [
+          9
+        ],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "VP, SVP, EVP"
+    },
+    {
+      "uid": "train_27",
+      "query": "What is the Shift towards?",
+      "meta_info": {
+        "file_name": "27.pdf",
+        "reference_page": [
+          11
+        ],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "Transformational leadership"
+    },
+    {
+      "uid": "train_30",
+      "query": "What are two components of Access to Learning?",
+      "meta_info": {
+        "file_name": "30.pdf",
+        "reference_page": [
+          14
+        ],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "Flexible Learning, E-Inclusion"
+    },
+    {
+      "uid": "train_31",
+      "query": "What percentage of online sales does 1% of products drive?",
+      "meta_info": {
+        "file_name": "31.pdf",
+        "reference_page": [
+          5
+        ],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "65"
+    },
+    {
+      "uid": "train_33",
+      "query": "When is SHIPPING CHEAPEST?",
+      "meta_info": {
+        "file_name": "33.pdf",
+        "reference_page": [
+          9
+        ],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "THANKSGIVING, CYBER MONDAY"
+    },
+    {
+      "uid": "train_34",
+      "query": "Which social channel generates the most REVENUE PER VISIT?",
+      "meta_info": {
+        "file_name": "34.pdf",
+        "reference_page": [
+          11
+        ],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "Facebook"
+    },
+    {
+      "uid": "train_37",
+      "query": "What is the product of oxidation?",
+      "meta_info": {
+        "file_name": "37.pdf",
+        "reference_page": [
+          3
+        ],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "ketones, aldehydes, acids"
+    }
   ]
 }

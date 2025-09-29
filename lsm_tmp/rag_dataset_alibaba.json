@@ -1,0 +1,245 @@
+{
+  "examples": [
+    {
+      "uid": "train_0",
+      "query": "When did the Alibaba Cloud data center network start?",
+      "meta_info": {
+        "file_name": "aliyun4_4.jpg",
+        "reference_page": [4],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "2009"
+    },
+    {
+      "uid": "train_1",
+      "query": "What are the three main benefits of migrating IT systems to the cloud?",
+      "meta_info": {
+        "file_name": "aliyun4_5.jpg",
+        "reference_page": [5],
+        "query_type": "List"
+      },
+      "reference_answer": "Elasticity, pay-as-you-go, and flexible deployment"
+    },
+    {
+      "uid": "train_2",
+      "query": "Which data center network product is described as 'a data center on the user's cloud'?",
+      "meta_info": {
+        "file_name": "aliyun4_6.jpg",
+        "reference_page": [6],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "Private Network VPC (专有网络 VPC)"
+    },
+    {
+      "uid": "train_3",
+      "query": "What are the four core competencies that need to be continuously built?",
+      "meta_info": {
+        "file_name": "aliyun4_7.jpg",
+        "reference_page": [7],
+        "query_type": "List"
+      },
+      "reference_answer": "Security, Stability, Performance, Cost"
+    },
+    {
+      "uid": "train_4",
+      "query": "What is the title of the second main section of this presentation?",
+      "meta_info": {
+        "file_name": "aliyun4_8.jpg",
+        "reference_page": [8],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "Major product launch focusing on security/stability/performance/cost"
+    },
+    {
+      "uid": "train_5",
+      "query": "In the diagram aliyun4_9.jpg, what is the IP address range for On-Premises 4?",
+      "meta_info": {
+        "file_name": "aliyun4_9.jpg",
+        "reference_page": [9],
+        "query_type": "Diagram-based"
+      },
+      "reference_answer": "10.0.3.0/24"
+    },
+    {
+      "uid": "train_6",
+      "query": "What are the three main application scenarios for using PrivateLink?",
+      "meta_info": {
+        "file_name": "aliyun4_10.jpg",
+        "reference_page": [10],
+        "query_type": "List"
+      },
+      "reference_answer": "Private access to cloud services, service-oriented enterprise IT architecture, and publishing third-party services in a VPC"
+    },
+    {
+      "uid": "train_7",
+      "query": "In what year did VPC start supporting IPv6?",
+      "meta_info": {
+        "file_name": "aliyun4_4.jpg",
+        "reference_page": [4],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "2019"
+    },
+    {
+      "uid": "train_8",
+      "query": "What is the main topic of the presentation on the title slide?",
+      "meta_info": {
+        "file_name": "aliyun4_1.jpg",
+        "reference_page": [1],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "A more secure and reliable data center network"
+    },
+    {
+      "uid": "train_9",
+      "query": "What is the first item listed in the table of contents?",
+      "meta_info": {
+        "file_name": "aliyun4_2.jpg",
+        "reference_page": [2],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "01 Challenges facing data center networks"
+    },
+    {
+      "uid": "train_10",
+      "query": "What is the title of the presentation's first section?",
+      "meta_info": {
+        "file_name": "aliyun4_3.jpg",
+        "reference_page": [3],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "Challenges facing data center networks"
+    },
+    {
+      "uid": "train_11",
+      "query": "What are the primary advantages of moving an entire enterprise system to the cloud?",
+      "meta_info": {
+        "file_name": "aliyun4_5.jpg",
+        "reference_page": [5],
+        "query_type": "List"
+      },
+      "reference_answer": "Intelligence and Cost"
+    },
+    {
+      "uid": "train_12",
+      "query": "What product is offered to provide network address translation services?",
+      "meta_info": {
+        "file_name": "aliyun4_6.jpg",
+        "reference_page": [6],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "NAT Gateway"
+    },
+    {
+      "uid": "train_13",
+      "query": "What user pain points does PrivateLink address?",
+      "meta_info": {
+        "file_name": "aliyun4_10.jpg",
+        "reference_page": [10],
+        "query_type": "List"
+      },
+      "reference_answer": "Higher security requirements, increased complexity in business and operations, and high-quality demands for complex application access."
+    },
+    {
+      "uid": "train_14",
+      "query": "According to the timeline, what product was released in 2020?",
+      "meta_info": {
+        "file_name": "aliyun4_4.jpg",
+        "reference_page": [4],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "Enhanced NAT Gateway"
+    },
+    {
+      "uid": "train_15",
+      "query": "Who is the presenter and what is their title?",
+      "meta_info": {
+        "file_name": "aliyun4_1.jpg",
+        "reference_page": [1],
+        "query_type": "Fact-based"
+      },
+      "reference_answer": "Peng Ximin, Senior Product Expert, Alibaba Cloud Network"
+    },
+    {
+  "uid": "train_16",
+  "query": "What is the main theme of the presentation shown on the title slide?",
+  "meta_info": {
+    "file_name": "slide_1_1024.jpg",
+    "reference_page": [1],
+    "query_type": "Summary-based"
+  },
+  "reference_answer": "APAC online travel market and the search for 'superconsumers'"
+},
+{
+  "uid": "train_17",
+  "query": "Who is the presenter of this presentation?",
+  "meta_info": {
+    "file_name": "slide_1_1024.jpg",
+    "reference_page": [1],
+    "query_type": "Fact-based"
+  },
+  "reference_answer": "Sushant Sharma"
+},
+{
+  "uid": "train_18",
+  "query": "According to the second slide, how is the APAC market characterized?",
+  "meta_info": {
+    "file_name": "slide_2_1024.jpg",
+    "reference_page": [2],
+    "query_type": "Summary-based"
+  },
+  "reference_answer": "One region, but with many different markets"
+},
+{
+  "uid": "train_19",
+  "query": "By 2020, which five countries are expected to power the outbound travel market in APAC?",
+  "meta_info": {
+    "file_name": "slide_3_1024.jpg",
+    "reference_page": [3],
+    "query_type": "Fact-based"
+  },
+  "reference_answer": "China, South Korea, Japan, India, and Malaysia"
+},
+{
+  "uid": "train_20",
+  "query": "What household income level marks the inflection point for international outbound leisure travel in developing APAC markets?",
+  "meta_info": {
+    "file_name": "slide_4_1024.jpg",
+    "reference_page": [4],
+    "query_type": "Fact-based"
+  },
+  "reference_answer": "US$10,000 household income"
+},
+{
+  "uid": "train_21",
+  "query": "What is the main barrier to enabling mobile bookings in emerging markets according to the presentation?",
+  "meta_info": {
+    "file_name": "slide_6_1024.jpg",
+    "reference_page": [6],
+    "query_type": "Summary-based"
+  },
+  "reference_answer": "Lack of local payment options and ease of payment issues"
+},
+{
+  "uid": "train_22",
+  "query": "Which traveller segment is expected to emerge strongly, driven by business travellers?",
+  "meta_info": {
+    "file_name": "slide_7_1024.jpg",
+    "reference_page": [7],
+    "query_type": "Summary-based"
+  },
+  "reference_answer": "Female travellers"
+},
+{
+  "uid": "train_23",
+  "query": "According to the presentation, which two countries have the lowest propensity to travel internationally in their respective APAC categories?",
+  "meta_info": {
+    "file_name": "slide_5_1024.jpg",
+    "reference_page": [5],
+    "query_type": "Fact-based"
+  },
+  "reference_answer": "Japan (developed) and India (developing)"
+}
+
+  ]
+}

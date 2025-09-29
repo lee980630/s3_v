@@ -38,7 +38,8 @@ n_agent=5 #수정
 
 tensor_model_parallel_size=2
 val_before_train=False
-search_url="http://0.0.0.0:8002/search"
+#search_url="http://0.0.0.0:8002/search"
+search_url="http://163.239.28.21:5002/search"
 # search_url='http://127.0.0.1:5000/search'
 rm_url="http://0.0.0.0:8003/eval"
 max_turns=4
@@ -65,17 +66,19 @@ log_path="./logs/grpo_output.json"
 # custom_reward_function.name=simple_format_checker \#추가: reward에서 score담당
 
 # #reward_model.log_path="'./logs/my_first_experiment.json'" \ 추가 
-export SCRIPT_DIR=$(pwd)
-NSYS_TEMP_DIR="${SCRIPT_DIR}/tmp"
-TMP_REPORT_PATH="${SCRIPT_DIR}/logs/nsight/temp_report" 
-mkdir -p ${NSYS_TEMP_DIR}
+# export SCRIPT_DIR=$(pwd)
+# NSYS_TEMP_DIR="${SCRIPT_DIR}/tmp"
+# TMP_REPORT_PATH="${SCRIPT_DIR}/logs/nsight/temp_report" 
+# mkdir -p ${NSYS_TEMP_DIR}
 ##
 
 
 export RAY_memory_usage_threshold=0.995
 
 #nsys profile --force-overwrite=true -o ${TMP_REPORT_PATH} python3 -m verl.trainer.main_ppo \
-TMPDIR=${NSYS_TEMP_DIR} nsys profile --force-overwrite=true -o ${TMP_REPORT_PATH} python3 -m verl.trainer.main_ppo \
+#TMPDIR=${NSYS_TEMP_DIR} nsys profile --force-overwrite=true -o ${TMP_REPORT_PATH} python3 -m verl.trainer.main_ppo \
+
+python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=./data/rag/slidevqa_train_crop.parquet \
     data.val_files=./data/rag/overall_test_crop.parquet \
@@ -132,12 +135,12 @@ TMPDIR=${NSYS_TEMP_DIR} nsys profile --force-overwrite=true -o ${TMP_REPORT_PATH
 
 #nsight 추가
 
-# nsight 추가 (이 부분도 절대 경로를 사용하도록 수정)
-FINAL_REPORT_PATH="${SCRIPT_DIR}/logs/nsight/report_$(date +%Y%m%d_%H%M%S)"
-echo " 프로파일링 보고서를 '${FINAL_REPORT_PATH}.nsys-rep' 이름으로 저장합니다."
-# 임시 파일 경로도 절대 경로로 지정
-mv "${TMP_REPORT_PATH}.nsys-rep" "${FINAL_REPORT_PATH}.nsys-rep"
-mv "${TMP_REPORT_PATH}.sqlite" "${FINAL_REPORT_PATH}.sqlite" 2>/dev/null || true
+# # nsight 추가 (이 부분도 절대 경로를 사용하도록 수정)
+# FINAL_REPORT_PATH="${SCRIPT_DIR}/logs/nsight/report_$(date +%Y%m%d_%H%M%S)"
+# echo " 프로파일링 보고서를 '${FINAL_REPORT_PATH}.nsys-rep' 이름으로 저장합니다."
+# # 임시 파일 경로도 절대 경로로 지정
+# mv "${TMP_REPORT_PATH}.nsys-rep" "${FINAL_REPORT_PATH}.nsys-rep"
+# mv "${TMP_REPORT_PATH}.sqlite" "${FINAL_REPORT_PATH}.sqlite" 2>/dev/null || true
 
 
 ####

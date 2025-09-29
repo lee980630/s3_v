@@ -9,18 +9,31 @@ from datasets import Dataset
 
 # 시스템 프롬프트와 사용자 프롬프트는 data_construct_pipeline에서 사용한 것과 동일하게 정의
 #원래 vrag prompt 사용 
-USER_PROMPT = '''Answer the given question. 
+# USER_PROMPT = '''You are a search agent.
+# You must conduct reasoning inside <think> and </think> every time you get new information. 
+# After reasoning, if you find you lack some knowledge, you can call a search engine using <search> query </search> and the user will return the search results. 
+# Whenever you retrieve an image, you may crop it for a clearer view using <bbox>[x1, y1, x2, y2]</bbox>. 
+# You can search as many times as you want. 
+# If you determine that no further external knowledge is needed, you must finish with <search_complete>true</search_complete>. 
+# Otherwise, continue with <search> or <bbox> actions until you are ready to finish. Question: {question}'''
+
+
+# 위의 코드는 아래의 한 줄짜리 코드와 완전히 동일하게 동작합니다.
+#원래 vrag prompt 사용 
+SYSTEM_PROMPT = '''You are a search agent.
 You must conduct reasoning inside <think> and </think> every time you get new information. 
 After reasoning, if you find you lack some knowledge, you can call a search engine using <search> query </search> and the user will return the search results. 
 Whenever you retrieve an image, you may crop it for a clearer view using <bbox>[x1, y1, x2, y2]</bbox>. 
 You can search as many times as you want. 
 If you determine that no further external knowledge is needed, you must finish with <search_complete>true</search_complete>. 
-Otherwise, continue with <search> or <bbox> actions until you are ready to finish. Question: {question}'''
+Otherwise, continue with <search> or <bbox> actions until you are ready to finish.'''
 
+# 실제 사용자 질문이 들어갈 템플릿 부분
+USER_QUESTION_FMT = "Question: {question}"
 
 
 # all_examples = [example for example in all_examples if example['query'] not in sft_questions]
-def convert_dataset(USER_PROMPT,file_list,file_source_list,output_name):
+def convert_dataset(SYSTEM_PROMPT,USER_QUESTION_FMT,file_list,file_source_list,output_name):
     all_examples = []
     for file_name, source_type in zip(file_list, file_source_list):
         with open(file_name, "r") as f:
@@ -56,7 +69,7 @@ def convert_dataset(USER_PROMPT,file_list,file_source_list,output_name):
     dataset = Dataset.from_dict({
         "id": [str(example["uid"]) for example in all_examples],
         "problem": [example["query"] for example in all_examples],
-        "prompt": [USER_PROMPT.replace('{question}',example["query"]) for example in all_examples],
+        #"prompt": [USER_PROMPT.replace('{question}',example["query"]) for example in all_examples],
         "answer": [example["reference_answer"] for example in all_examples],
         "file_name": [example["meta_info"]["file_name"] for example in all_examples],
         "reference_page": [example["meta_info"]["reference_page"] for example in all_examples],
@@ -67,7 +80,7 @@ def convert_dataset(USER_PROMPT,file_list,file_source_list,output_name):
 
     def make_map_fn_test(split):
         def process_fn(example, idx):
-            prompt = example.pop('prompt')
+            #prompt = example.pop('prompt')
             answer = example.pop('answer')
             problem = example.pop('problem')
             data_source = example.pop('data_source_type')
@@ -76,13 +89,14 @@ def convert_dataset(USER_PROMPT,file_list,file_source_list,output_name):
             # images = example.pop('images')
             #query_content_type = example.pop('query_content_type')
             #query_reason_type = example.pop('query_reason_type')
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": USER_QUESTION_FMT.format(question=problem)}
+            ]
 
             data = {
                 "data_source": data_source,
-                "prompt": [{
-                    "role": "user",
-                    "content": prompt,
-                }],
+                "prompt": messages,
                 # "images": images,
                 #"ability": "math",
                 "reward_model": {
@@ -117,7 +131,8 @@ def convert_dataset(USER_PROMPT,file_list,file_source_list,output_name):
 
 if __name__ == '__main__':
     convert_dataset(
-        USER_PROMPT,
+        SYSTEM_PROMPT,
+        USER_QUESTION_FMT,        
         ['./lsm_tmp/rag_dataset.json'],#rl_train_dataset.json
         ['slidevqa_train'], #file source list
         'slidevqa_train_crop' #output name

@@ -175,44 +175,45 @@ class RMManager:
                 reference_answer = data_item.non_tensor_batch['reward_model']['ground_truth']
             ))
 
-        #data_to_be_eval: data_eval 중에서 raw_score가 0보다 큰 데이터만 필터링되어 들어있는 리스트.
-        data_to_be_eval = []
-        for i in range(len(data)):
-            data_item = data[i]  # DataProtoItem
+        # #data_to_be_eval: data_eval 중에서 raw_score가 0보다 큰 데이터만 필터링되어 들어있는 리스트.
+        # data_to_be_eval = []
+        # for i in range(len(data)):
+        #     data_item = data[i]  # DataProtoItem
 
-            prompt_ids = data_item.batch['prompts']
+        #     prompt_ids = data_item.batch['prompts']
 
-            prompt_length = prompt_ids.shape[-1]
+        #     prompt_length = prompt_ids.shape[-1]
 
-            valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
-            valid_prompt_ids = prompt_ids[-valid_prompt_length:]
+        #     valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
+        #     valid_prompt_ids = prompt_ids[-valid_prompt_length:]
 
-            response_ids = data_item.batch['responses']
-            valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
-            valid_response_ids = response_ids[:valid_response_length]
+        #     response_ids = data_item.batch['responses']
+        #     valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
+        #     valid_response_ids = response_ids[:valid_response_length]
 
-            # decode
-            prompt_str = self.tokenizer.decode(valid_prompt_ids)
-            response_str = self.tokenizer.decode(valid_response_ids)
+        #     # decode
+        #     prompt_str = self.tokenizer.decode(valid_prompt_ids)
+        #     response_str = self.tokenizer.decode(valid_response_ids)
 
-            ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
+        #     ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
 
-            data_source = data_item.non_tensor_batch['data_source']
+        #     data_source = data_item.non_tensor_batch['data_source']
 
-            extra_info = data_item.non_tensor_batch.get('extra_info', None)
+        #     extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
-            #score = self.compute_score( #수정 제거 log 작성
-            raw_score = self.compute_score( #수정 추가 log 작성
-                data_source=data_source,
-                solution_str=response_str,
-                ground_truth=ground_truth,
-                extra_info=extra_info,
-            )
+        #     #score = self.compute_score( #수정 제거 log 작성
+        #     raw_score = self.compute_score( #수정 추가 log 작성
+        #         data_source=data_source,
+        #         solution_str=response_str,
+        #         ground_truth=ground_truth,
+        #         extra_info=extra_info,
+        #     )
             
-            #if score >0.0: 수정 제거 log 작성
-            if raw_score > 0.0:#수정 추가 log 작성
-                data_to_be_eval.append(data_eval[i])
+        #     #if score >0.0: 수정 제거 log 작성
+        #     if raw_score > 0.0:#수정 추가 log 작성
+        #         data_to_be_eval.append(data_eval[i])
 
+        data_to_be_eval = data_eval
 
         if len(data_to_be_eval) > 0:
             request_data_to_be_eval = dict(
@@ -251,16 +252,6 @@ class RMManager:
             data_source = data_item.non_tensor_batch['data_source']
 
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
-
-        
-
-            #score = self.compute_score( #수정 삭제: log 작성
-            raw_score = self.compute_score( #수정 추가: log 작성
-                data_source=data_source,
-                solution_str=response_str,
-                ground_truth=ground_truth,
-                extra_info=extra_info,
-            )
            
 
             # ###############수정 (삽입) ###########
@@ -303,29 +294,19 @@ class RMManager:
             retrievaled_images_basename_list = []
             reference_images_basename_list = []            
 
-            if raw_score > 0.0:
-                retrievaled_images_basename_list = [
-                    os.path.basename(item.rstrip('/')).split(".jpg")[0]
-                    for item in data_item.non_tensor_batch['retrievaled_images']
-                ]
-                #pdf에서 이미지를 retrieve를 할 경우
-                # reference_images_basename_list = [
-                #     f'{extra_info["file_name"].split(".pdf")[0]}_{page}'
-                #     for page in extra_info["reference_page"].tolist()
-                # ]
-                reference_images_basename_list = [f'{extra_info["file_name"].split(".jpg")[0]}' for page in extra_info["reference_page"].tolist()] #수정 추가
+            try:
+                retrievaled_images_basename_list = [os.path.basename(item.rstrip('/')).split(".jpg")[0] for item in data_item.non_tensor_batch['retrievaled_images']]
+                reference_images_basename_list = [f'{extra_info["file_name"].split(".pdf")[0]}_{page}' for page in extra_info["reference_page"].tolist()]
+                ndcg_value = ndcg(retrievaled_images_basename_list, reference_images_basename_list)
+            except Exception as e:
+                # RAG 관련 데이터가 아닐 경우 NDCG 계산에서 오류가 날 수 있으므로 기본값 0.0으로 처리합니다.
+                ndcg_value = 0.0
 
-                ndcg_value = ndcg(
-                    retrievaled_images_basename_list, reference_images_basename_list
-                )
-            ####################
-
-            #reward_tensor[i, valid_response_length - 1] = score 수정 제거 :log 작성
-            ###수정 추가# log 작성###
-                model_eval_score = eval_results.pop(0)
-                final_score = (
-                    0.7 * model_eval_score + 0.1 * raw_score + 0.2 * ndcg_value
-                )
+            # raw_score 필터링이 없으므로, 모든 데이터에 대해 model_eval_score를 가져옵니다.
+            model_eval_score = eval_results.pop(0) if eval_results else 0.0
+            final_score = (
+                0.8 * model_eval_score + 0.2 * ndcg_value # raw_score 항을 제거하고 가중치 재분배 (0.7, 0.2 -> 0.8, 0.2)
+            )
 
             reward_tensor[i, valid_response_length - 1] = final_score
 
@@ -342,7 +323,7 @@ class RMManager:
                     "response": response_str,
                     "scores": {
                         "model_eval_score": model_eval_score,
-                        "raw_score": raw_score,
+                        #"raw_score": raw_score,
                         "ndcg_value": ndcg_value,
                         "final_score": final_score,
                         "ndcg_details": {

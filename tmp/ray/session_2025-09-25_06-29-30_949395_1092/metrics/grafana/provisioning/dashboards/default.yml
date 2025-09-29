@@ -1,0 +1,9 @@
+
+apiVersion: 1
+
+providers:
+  - name: Ray    # Default dashboards provided by OSS Ray
+    folder: Ray
+    type: file
+    options:
+      path: /root/workspace/VRAG_test/VRAG_lsm/tmp/ray/session_2025-09-25_06-29-30_949395_1092/metrics/grafana/dashboards

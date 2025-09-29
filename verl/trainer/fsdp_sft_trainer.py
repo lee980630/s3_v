@@ -25,6 +25,8 @@ os.environ['TOKENIZERS_PARALLELISM'] = 'true'
 
 import logging
 import re
+import sys
+import wandb
 from contextlib import nullcontext
 import torch
 import torch.distributed
@@ -86,7 +88,7 @@ class FSDPSFTTrainer(object):
         local_model_path = copy_to_local(src=self.config.model.partial_pretrain, verbose=True)
         from verl.utils import hf_tokenizer
         self.tokenizer = hf_tokenizer(local_model_path, trust_remote_code=self.config.model.trust_remote_code) 
-        
+        self._debug_step=0
 
         if self.config.data.chat_template is not None:
             raise ValueError('Apply Chat template from config is not supported yet.')
@@ -123,22 +125,18 @@ class FSDPSFTTrainer(object):
     def _build_dataloader(self):
         config = self.config
         # build dataset
-        self.train_dataset = SFTDataset(parquet_files=config.data.train_files,
-                                        tokenizer=self.tokenizer, 
-                                        prompt_key=config.data.prompt_key,
-                                        prompt_dict_keys=config.data.get('prompt_dict_keys', None),
-                                        response_key=config.data.response_key,
-                                        response_dict_keys=config.data.get('response_dict_keys', None),
-                                        max_length=config.data.max_length,
-                                        truncation=config.data.truncation)
-        self.val_dataset = SFTDataset(parquet_files=config.data.val_files,
-                                      tokenizer=self.tokenizer, 
-                                      prompt_key=config.data.prompt_key,
-                                      prompt_dict_keys=config.data.get('prompt_dict_keys', None),
-                                      response_key=config.data.response_key,
-                                      response_dict_keys=config.data.get('response_dict_keys', None),
-                                      max_length=config.data.max_length,
-                                      truncation=config.data.truncation)
+        self.train_dataset = SFTDataset(
+            parquet_files=config.data.train_files,
+            tokenizer=self.tokenizer,
+            max_length=config.data.max_length,
+            truncation=config.data.truncation,
+        )
+        self.val_dataset = SFTDataset(
+            parquet_files=config.data.val_files,
+            tokenizer=self.tokenizer,
+            max_length=config.data.max_length,
+            truncation=config.data.truncation,
+        )
 
         # build dataloader
         # Use data parallel rank and size instead of global rank and world size
@@ -220,7 +218,7 @@ class FSDPSFTTrainer(object):
             self.model = AutoModelForVision2Seq.from_pretrained(
                 local_model_path,
                 config=config,
-                torch_dtype= torch.float32,
+                torch_dtype= torch.bfloat16,
                 attn_implementation= 'flash_attention_2',
                 trust_remote_code = True
             )
@@ -307,8 +305,26 @@ class FSDPSFTTrainer(object):
         input_ids = batch['input_ids'].cuda()
         attention_mask = batch['attention_mask'].cuda()
         position_ids = batch['position_ids'].cuda()
-        loss_mask = batch.pop('loss_mask')[:, :-1].reshape(-1).cuda()
+        #loss_mask = batch.pop('loss_mask')[:, :-1].reshape(-1).cuda()
+        loss_mask = batch["loss_mask"][:, :-1].reshape(-1).cuda()
         loss_fct = nn.CrossEntropyLoss(reduction='none')
+
+        # ===== DEBUG: 학습에 사용되는 토큰 출력 =====
+        if self.device_mesh.get_rank() == 0 and self._debug_step % 20 == 0:
+            input_ids_cpu = batch["input_ids"][:1].cpu()
+            loss_mask_cpu = batch["loss_mask"][:1].cpu()
+
+            # 둘 중 짧은 길이에 맞추기
+            min_len = min(input_ids_cpu.size(1), loss_mask_cpu.size(1))
+            tokens = self.tokenizer.convert_ids_to_tokens(input_ids_cpu[0][:min_len])
+            mask = loss_mask_cpu[0][:min_len]
+
+            learned_tokens = [t for t, m in zip(tokens, mask) if m == 1]
+
+            print(f"\n[DEBUG step {self._debug_step}] 실제 학습에 사용된 부분:")
+            print(self.tokenizer.convert_tokens_to_string(learned_tokens))
+            print("===============================================")
+
 
         # Context manager for sequence parallel if needed
         context = self.sharding_manager if use_sp else nullcontext()
@@ -411,6 +427,7 @@ class FSDPSFTTrainer(object):
         for micro_batch in micro_batches:
             loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
             step_loss += loss.item()
+            
 
         self.fsdp_model.clip_grad_norm_(max_norm=self.config.optim.clip_grad)
 
@@ -429,6 +446,7 @@ class FSDPSFTTrainer(object):
 
         step_loss = torch.tensor(step_loss).cuda()
         torch.distributed.all_reduce(step_loss, op=torch.distributed.ReduceOp.AVG)
+        self._debug_step += 1
         return {'train/loss': step_loss.detach().item(), 'train/lr(1e-3)': lr * 1e3}
 
     def validation_step(self, batch: TensorDict):
@@ -455,12 +473,19 @@ class FSDPSFTTrainer(object):
                 hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
                 hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
         torch.distributed.barrier()
-
+    
     def fit(self):
         rank = self.device_mesh.get_rank()
 
         # TODO: add a unified tracking
         if rank == 0:
+            # wandb 초기화
+            wandb.init(
+                project=self.config.trainer.project_name,   # hydra config에서 가져오기
+                name=self.config.trainer.experiment_name,  # 실험 이름
+                config=convert_to_regular_types(self.config)  # 전체 설정도 저장 가능
+            )
+            
             tracking = Tracking(project_name=self.config.trainer.project_name,
                                 experiment_name=self.config.trainer.experiment_name,
                                 default_backend=self.config.trainer.logger)
@@ -488,6 +513,7 @@ class FSDPSFTTrainer(object):
                 metric = self.training_step(data)
                 if rank == 0:
                     tracking.log(data=metric, step=global_step)
+                    wandb.log(metric, step=global_step)
 
                 # for early exit validation
                 if global_step >= self.total_training_steps:
@@ -501,6 +527,7 @@ class FSDPSFTTrainer(object):
                         avg_val_loss = torch.mean(torch.stack(val_losses))
                         metric = {'val/loss': avg_val_loss.detach().item()}
                         tracking.log(data=metric, step=global_step)
+                        wandb.log(metric, step=global_step)
                     torch.distributed.barrier()
 
                     # Save final checkpoint
@@ -517,6 +544,7 @@ class FSDPSFTTrainer(object):
                 val_loss = torch.mean(torch.stack(val_losses))
                 metric = {'val/loss': val_loss.detach().item()}
                 tracking.log(data=metric, step=global_step)
+                wandb.log(metric, step=global_step)
             torch.distributed.barrier()
 
             # save checkpoint

@@ -371,6 +371,7 @@ class LLMGenerationManager:
         # original_left_side = {'input_ids': initial_input_ids[:, -self.config.max_start_length:]}
         original_left_side = {'input_ids': initial_input_ids}
         original_right_side = {'responses': initial_input_ids[:, []]}
+
         
         active_mask = torch.ones(gen_batch.batch['input_ids'].shape[0], dtype=torch.bool)
         active_num_list = [active_mask.sum().item()]
@@ -410,15 +411,28 @@ class LLMGenerationManager:
             # self.processor.batch_decode(rollings_active.batch['input_ids'])
             gen_output = self._generate_with_gpu_padding(rollings_active)
 
-            meta_info = gen_output.meta_info            
+            meta_info = gen_output.meta_info     
+
             responses_ids, responses_str = self._postprocess_responses(gen_output.batch['responses'])
-
-
             print(responses_str[0])
+
             
-            responses_ids, responses_str = self.tensor_fn._example_level_pad(responses_ids, responses_str, active_mask)
             # Execute in environment and process observations
-            next_obs, dones = self.execute_predictions(responses_str, self.tokenizer.pad_token, active_mask)
+            
+            padded_responses_ids, _ = self.tensor_fn._example_level_pad(responses_ids, responses_str, active_mask)# 수정 추가 uid 넘기기
+
+            #수정----#
+            # 1. execute_predictions를 호출하기 전에 uids를 가져옵니다.
+            active_uids = rollings.non_tensor_batch['id'][active_mask]
+            
+
+            # 2. Execute in environment and process observations
+            #    호출 시 uids를 두 번째 인자로 전달합니다.
+            next_obs, dones = self.execute_predictions(responses_str, active_uids, self.tokenizer.pad_token, active_mask)
+            
+            # --- 여기까지 ---
+
+            #next_obs, dones = self.execute_predictions(responses_str, self.tokenizer.pad_token, active_mask) #수정 제거 uid 넘기기
             
             curr_active_mask = torch.tensor([not done for done in dones], dtype=torch.bool)
             active_mask = active_mask * curr_active_mask
@@ -434,12 +448,14 @@ class LLMGenerationManager:
             # Update states            
             rollings = self._update_rolling_state(
                 rollings,
-                responses_ids,
+                #responses_ids, #수정 제거 
+                padded_responses_ids, #수정 추가 uid
                 next_obs_ids
             )
             original_right_side = self._update_right_side(
                 original_right_side,
-                responses_ids,
+                #responses_ids, #수정 제거 uid
+                padded_responses_ids, #수정 추가 uid
                 next_obs_ids
             )
 
@@ -475,9 +491,12 @@ class LLMGenerationManager:
                 responses_ids, responses_str = self._postprocess_responses(gen_output.batch['responses'])
                 responses_ids, responses_str = self.tensor_fn._example_level_pad(responses_ids, responses_str, active_mask)
 
+                active_uids = rollings.non_tensor_batch['id'][active_mask] #수정 uid 추가 
+
+
                 # # Execute in environment and process observations
-                _, dones = self.execute_predictions(
-                    responses_str, self.tokenizer.pad_token, active_mask, do_search=False
+                _, dones = self.execute_predictions( #ctive uid 추가 수정
+                    responses_str, active_uids, self.tokenizer.pad_token, active_mask, do_search=False
                 )
 
                 curr_active_mask = torch.tensor([not done for done in dones], dtype=torch.bool)
@@ -567,42 +586,62 @@ class LLMGenerationManager:
         
         return final_output
 
-    def execute_predictions(self, predictions: List[str], pad_token: str, active_mask=None, do_search=True) -> List[str]:
-        """
-        Execute predictions across multiple environments.
-        NOTE: the function is the actual `step` function in the environment
-        NOTE penalty_for_invalid is not included in observation shown to the LLM
-        
-        Args:
-            envs: List of environment instances
-            predictions: List of action predictions
-            pad_token: Token to use for padding
-            
-        Returns:
-            List of observation strings
-        """
+
+
+
+# generation.py 파일의 execute_predictions 함수를 아래 내용으로 완전히 교체해주세요.
+    def execute_predictions(self, predictions: List[str], uids: np.ndarray, pad_token: str, active_mask=None, do_search=True) -> List[str]:
         cur_actions, contents = self.postprocess_predictions(predictions)
         next_obs, dones = [], []
         
         bbox_list = [content for action, content in zip(cur_actions, contents) if action == 'bbox']
-        search_queries = [content for action, content in zip(cur_actions, contents) if action == 'search']
+        
+        search_requests = []
+        # zip은 더 짧은 uids 리스트 길이에 맞춰 반복하므로 IndexError가 발생하지 않습니다.
+        for i, (action, content) in enumerate(zip(cur_actions, contents)):
+            if action == 'search':
+                #added
+                m = re.search(r'(\d+)$', str(uids[i]))
+                search_id = int(m.group(1)) if m else -1
+                #
+                search_requests.append({
+                    "query": content,
+                    #"id": uids[i] #train_ 빼기 수정
+                    "id": str(search_id)
+                })        
+
         if do_search:
-            if len(search_queries) > 0:
+            if len(search_requests) > 0:
                 batch_size = 100
                 search_results = []
-                for i in range(0, len(search_queries), batch_size):
-                    batch_queries = search_queries[i:i + batch_size]
-                    response = requests.get(self.config.search_url, params={"queries": batch_queries})
+                for i in range(0, len(search_requests), batch_size):
+                    batch_reqs = search_requests[i:i + batch_size]
+                    response = requests.post(self.config.search_url, json=batch_reqs)                    
                     search_results_single_batch = response.json()
                     search_results.extend(search_results_single_batch)
-                assert len(search_results) == sum([1 for action in cur_actions if action == 'search'])
+                
+                # 받은 결과의 개수가 보낸 요청의 개수와 같은지 확인
+
+                # ================= DEBUG START =================
+                print("\n--- 🐛 디버깅 정보 🐛 ---")
+                print(f"보낸 요청 개수 (len(search_requests)): {len(search_requests)}")
+                print(f"받은 결과 개수 (len(search_results)): {len(search_results)}")
+                print("--- 보낸 요청 내용 (search_requests) ---")
+                import json
+                print(json.dumps(search_requests, indent=2, ensure_ascii=False))
+                print("--- 받은 결과 내용 (search_results) ---")
+                print(json.dumps(search_results, indent=2, ensure_ascii=False))
+                print("--------------------------\n")
+                # ================== DEBUG END ==================
+
+                assert len(search_results) == len(search_requests)
             else:
                 search_results = []
         else:
-            search_results = [''] * sum([1 for action in cur_actions if action == 'search'])
+            # do_search=False일 경우, 요청 개수만큼 빈 결과를 생성
+            search_results = [''] * len(search_requests)
 
         for i, (action, active) in enumerate(zip(cur_actions, active_mask)):
-            
             if not active:
                 next_obs.append('')
                 dones.append(1)
@@ -611,7 +650,8 @@ class LLMGenerationManager:
                     next_obs.append('')
                     dones.append(1)
                 elif action == 'search':
-                    # next_obs.append(f'\n\n<information>{search_results.pop(0).strip()}</information>\n\n')
+                    # 이 블록은 search_requests를 만들 때와 동일한 조건으로 실행되므로
+                    # search_results 리스트가 비어있을 수 없습니다.
                     next_obs.append(search_results.pop(0))
                     dones.append(0)
                 elif action == 'bbox':
@@ -622,15 +662,18 @@ class LLMGenerationManager:
                         else:
                             raise ValueError("Invalid bbox value")
                     except:
-                        next_obs.append('\n<|im_start|>user\nYour previous action is invalid. You must conduct reasoning inside <think> and </think> first every time you get new information. After reasoning, if you find you lack some knowledge, you can call a search engine by <search> query </search> and user will return the searched results. Every time you retrieve an image, you have the option to crop it to obtain a clearer view, the format for coordinates is <bbox>[x1, y1, x2, y2]</bbox>. You can search as many times as your want. If you find no further external knowledge needed, you can directly provide the answer inside <answer> and </answer>, without detailed illustrations. For example, <answer> Beijing </answer>. Please try again.\n<|im_end|>\n<|im_start|>assistant\n')
+                        next_obs.append('\n<|im_start|>user\nYour previous action is invalid...\n<|im_end|>\n<|im_start|>assistant\n')
                     dones.append(0)
                 else:
-                    next_obs.append('\n<|im_start|>user\nYour previous action is invalid. You must conduct reasoning inside <think> and </think> first every time you get new information. After reasoning, if you want to search, you should put the query between <search> and </search>.\nIf you find no further external knowledge needed, you can directly provide the answer inside <answer> and </answer>, without detailed illustrations. For example, <answer> Beijing </answer>. Please try again.\n<|im_end|>\n<|im_start|>assistant\n')
+                    next_obs.append('\n<|im_start|>user\nYour previous action is invalid...\n<|im_end|>\n<|im_start|>assistant\n')
                     dones.append(0)
-            
+        
+        # 모든 결과를 소비했는지 최종 확인
         assert len(search_results) == 0
 
         return next_obs, dones
+
+
 
     def postprocess_predictions(self, predictions: List[Any]) -> Tuple[List[int], List[bool]]:
         """

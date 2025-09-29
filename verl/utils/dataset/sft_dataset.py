@@ -18,6 +18,12 @@ SFT dataset
 Each parquet file contains
 """
 
+"""
+VRAG/VRAG에서
+python -m verl.utils.dataset.sft_dataset   --input ./lsm_tmp/results/sft_dataset/train_10.parquet   --tokenizer Qwen/Qwen2.5-7B-Instruct   --num_samples 2
+위 명령어 실행
+"""
+
 from typing import List, Union
 
 import pandas as pd
@@ -29,7 +35,7 @@ from transformers import AutoTokenizer, PreTrainedTokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils import hf_tokenizer
-
+import json
 
 class SFTDataset(Dataset):
     """
@@ -43,7 +49,7 @@ class SFTDataset(Dataset):
                  prompt_dict_keys=None,
                  response_key='response',
                  response_dict_keys=None,
-                 max_length=1024,
+                 max_length=2048,
                  truncation='error'):
         assert truncation in ['error', 'left', 'right']
         self.truncation = truncation
@@ -70,7 +76,7 @@ class SFTDataset(Dataset):
         for i, parquet_file in enumerate(self.parquet_files):
             self.parquet_files[i] = copy_to_local(parquet_file, verbose=True)
 
-    def _read_files_and_tokenize(self):
+    """def _read_files_and_tokenize(self):
 
         def series_to_item(ls):
             import pandas, numpy
@@ -85,39 +91,47 @@ class SFTDataset(Dataset):
             dataframes.append(dataframe)
         self.dataframe = pd.concat(dataframes)
         self.prompts = self.dataframe[self.prompt_key]
-        #추가
-        if isinstance(self.prompts, pd.DataFrame):
-            self.prompts = self.prompts.iloc[:, 0]
-        ####################
         for key in self.prompt_dict_keys:
             # type(x): pandas.core.series.Series
             # type(x[0]): numpy.ndarray
             # type(x[0][0]): dict
             try:
-                #self.prompts = self.prompts.apply(lambda x: series_to_item(x)[key], axis=1)
-                self.prompts = self.prompts.apply(lambda x: series_to_item(x)[key]) #수정
+                self.prompts = self.prompts.apply(lambda x: series_to_item(x)[key], axis=1)
             except Exception:
                 print(f'self.prompts={self.prompts}')
                 raise
         self.prompts = self.prompts.tolist()
         self.responses = self.dataframe[self.response_key]
-        #수정
-        if isinstance(self.responses, pd.DataFrame):
-            self.responses = self.responses.iloc[:, 0]
-        #########################
         for key in self.response_dict_keys:
             try:
-                #self.responses = self.responses.apply(lambda x: series_to_item(x)[key], axis=1)
-                self.responses = self.responses.apply(lambda x: series_to_item(x)[key]) #수정
+                self.responses = self.responses.apply(lambda x: series_to_item(x)[key], axis=1)
             except Exception:
                 print(f'self.responses={self.responses}')
                 raise
-        self.responses = self.responses.tolist()
+        self.responses = self.responses.tolist()"""
+    def _read_files_and_tokenize(self):
+        dataframes = []
+        for parquet_file in self.parquet_files:
+            # parquet 파일 읽기
+            dataframe = pd.read_parquet(parquet_file)
+            dataframes.append(dataframe)
+
+        # 여러 개 parquet이면 concat
+        self.dataframe = pd.concat(dataframes, ignore_index=True)
+
+        # messages 컬럼 확인
+        if "messages" not in self.dataframe.columns:
+            raise ValueError(
+                f"parquet 파일에 'messages' 컬럼이 없습니다. "
+                f"현재 컬럼들: {list(self.dataframe.columns)}"
+            )
+
 
     def __len__(self):
-        return len(self.prompts)
+        #return len(self.prompts)
+        return len(self.dataframe)
 
-    def __getitem__(self, item):
+    """def __getitem__(self, item):
         tokenizer = self.tokenizer
 
         prompt = self.prompts[item]
@@ -129,8 +143,6 @@ class SFTDataset(Dataset):
         # string
         prompt_chat_str = tokenizer.apply_chat_template(prompt_chat, add_generation_prompt=True, tokenize=False)
         response_chat_str = response + tokenizer.eos_token
-        
-
 
         # tokenize
         prompt_ids_output = tokenizer(prompt_chat_str, return_tensors='pt', add_special_tokens=False)
@@ -183,4 +195,228 @@ class SFTDataset(Dataset):
             'attention_mask': attention_mask,
             'position_ids': position_ids,
             'loss_mask': loss_mask
-        }
+        }"""
+    def __getitem__(self, item):
+        tokenizer = self.tokenizer
+        messages = self.dataframe.iloc[item]["messages"]
+
+        # 문자열(JSON)일 경우 dict 리스트로 변환
+        if isinstance(messages, str):
+            messages = json.loads(messages)
+
+        # content가 list인 경우 문자열 변환
+        for m in messages:
+            if isinstance(m.get("content"), list):
+                m["content"] = json.dumps(m["content"], ensure_ascii=False)
+
+        # === 전체 대화 텍스트 ===
+        chat_str = tokenizer.apply_chat_template(messages, tokenize=False)
+        tokenized = tokenizer(chat_str, return_tensors="pt", add_special_tokens=False)
+        input_ids = tokenized["input_ids"][0]
+        attention_mask = tokenized["attention_mask"][0]
+
+        # padding / truncation
+        if len(input_ids) < self.max_length:
+            pad_len = self.max_length - len(input_ids)
+            input_ids = torch.cat([input_ids, torch.full((pad_len,), self.tokenizer.pad_token_id)])
+            attention_mask = torch.cat([attention_mask, torch.zeros(pad_len, dtype=attention_mask.dtype)])
+        elif len(input_ids) > self.max_length:
+            if self.truncation == "right":
+                input_ids = input_ids[:self.max_length]
+                attention_mask = attention_mask[:self.max_length]
+            elif self.truncation == "left":
+                input_ids = input_ids[-self.max_length:]
+                attention_mask = attention_mask[-self.max_length:]
+            else:
+                raise NotImplementedError
+
+        position_ids = compute_position_id_with_mask(attention_mask)
+
+        # === loss_mask (assistant만 1) ===
+        loss_mask = torch.zeros_like(attention_mask)
+
+        for msg in messages:
+            if msg.get("role") == "assistant":
+                # assistant content만 토큰화
+                resp_ids = tokenizer(
+                    msg["content"] + tokenizer.eos_token,
+                    return_tensors="pt",
+                    add_special_tokens=False
+                )["input_ids"][0]
+
+                # input_ids 안에서 resp_ids 위치 찾기 (substring search)
+                for i in range(len(input_ids) - len(resp_ids) + 1):
+                    if torch.equal(input_ids[i:i+len(resp_ids)], resp_ids):
+                        loss_mask[i:i+len(resp_ids)-1] = 1  # 마지막 토큰 제외
+                        break
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "position_ids": position_ids,
+            "loss_mask": loss_mask
+        }    
+
+    """def __getitem__(self, item):
+        tok = self.tokenizer
+        row = self.dataframe.iloc[item]
+        messages = row["messages"]
+
+        # parquet에 문자열(JSON)로 저장된 경우 파싱
+        if isinstance(messages, str):
+            messages = json.loads(messages)
+
+        # content가 list면 JSON 문자열로 변환 (chat template는 문자열을 기대)
+        for m in messages:
+            if isinstance(m.get("content"), list):
+                m["content"] = json.dumps(m["content"], ensure_ascii=False)
+
+        # 전체 대화 문자열 (Qwen ChatML 가정)
+        chat_str = tok.apply_chat_template(messages, tokenize=False)
+
+        enc = tok(chat_str, return_tensors="pt", add_special_tokens=False)
+        input_ids = enc["input_ids"].squeeze(0)        # (L,)
+        attention_mask = enc["attention_mask"].squeeze(0)
+
+        # ---- pad / truncation ----
+        pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
+        L = input_ids.numel()
+        if L < self.max_length:
+            pad_len = self.max_length - L
+            input_ids = torch.cat([input_ids, torch.full((pad_len,), pad_id, dtype=input_ids.dtype)])
+            attention_mask = torch.cat([attention_mask, torch.zeros(pad_len, dtype=attention_mask.dtype)])
+        elif L > self.max_length:
+            if self.truncation == "right":
+                input_ids = input_ids[: self.max_length]
+                attention_mask = attention_mask[: self.max_length]
+            elif self.truncation == "left":
+                input_ids = input_ids[-self.max_length:]
+                attention_mask = attention_mask[-self.max_length:]
+            else:
+                raise RuntimeError(f"sequence_length={L} > max_length={self.max_length}")
+
+        position_ids = compute_position_id_with_mask(attention_mask)
+
+        # ---- loss_mask: <|im_start|>assistant ... <|im_end|> 본문만 1
+        loss_mask = torch.zeros_like(attention_mask)
+
+        # 토큰 헬퍼
+        def toks(s: str) -> torch.Tensor:
+            return tok(s, add_special_tokens=False, return_tensors="pt")["input_ids"].squeeze(0)
+
+        # 경계 토큰(개행 유무 모두 대응)
+        start_assistant_a = toks("<|im_start|>assistant")
+        start_assistant_b = toks("<|im_start|>assistant\n")
+        end_tok = toks("<|im_end|>")
+
+        # search_complete 태그 (우선 true 포함, 없으면 닫힘태그만이라도)
+        sc_true = toks("<search_complete>true</search_complete>")
+        sc_close = toks("</search_complete>")
+
+        # 부분열 검색 (간단 선형)
+        def find_subseq(hay: torch.Tensor, nee: torch.Tensor, st: int = 0) -> int:
+            Lh, Ln = hay.numel(), nee.numel()
+            if Ln == 0 or Lh < Ln:
+                return -1
+            for i in range(st, Lh - Ln + 1):
+                if torch.equal(hay[i:i+Ln], nee):
+                    return i
+            return -1
+
+        # 블록 찾기
+        def find_blocks(ids: torch.Tensor, start_tok: torch.Tensor) -> list[tuple[int,int]]:
+            blocks, cur = [], 0
+            while True:
+                s = find_subseq(ids, start_tok, cur)
+                if s < 0:
+                    break
+                cs = s + start_tok.numel()           # 본문 시작
+                e = find_subseq(ids, end_tok, cs)
+                if e < 0:
+                    break
+                blocks.append((cs, e))               # [본문시작, end_tok 시작)
+                cur = e + end_tok.numel()
+            return blocks
+
+        blocks = find_blocks(input_ids, start_assistant_b) + find_blocks(input_ids, start_assistant_a)
+        blocks = sorted(blocks, key=lambda x: x[0])
+
+        # 중복/겹침 제거(개행 유무로 두 번 잡힌 경우)
+        merged = []
+        for b in blocks:
+            if not merged or b[0] >= merged[-1][1]:
+                merged.append(b)
+            # 겹치면 건너뜀
+
+        # 각 블록에서 search_complete까지 마스킹
+        for (cs, e) in merged:
+            ce = min(e, input_ids.numel())
+            rel = input_ids[cs:ce]
+
+            pos = find_subseq(rel, sc_true, 0)
+            if pos >= 0:
+                cut_end = cs + pos + sc_true.numel()
+            else:
+                pos2 = find_subseq(rel, sc_close, 0)
+                if pos2 >= 0:
+                    cut_end = cs + pos2 + sc_close.numel()
+                else:
+                    cut_end = ce
+
+            cut_end = min(cut_end, input_ids.numel())
+            # 마지막 토큰(보통 EOS 성격)은 예측 제외
+            if cut_end - cs > 1:
+                loss_mask[cs:cut_end] = 1
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "position_ids": position_ids,
+            "loss_mask": loss_mask,
+        }"""
+
+
+
+
+
+        
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input", type=str, required=True)
+    parser.add_argument("--tokenizer", type=str, required=True)
+    parser.add_argument("--max_len", type=int, default=2048)
+    parser.add_argument("--num_samples", type=int, default=2)
+    args = parser.parse_args()
+
+    # === 데이터셋 로드 ===
+    dataset = SFTDataset(
+        parquet_files=args.input,
+        tokenizer=args.tokenizer,
+        max_length=args.max_len,
+        truncation="right"
+    )
+    print(f"✅ parquet 로드 완료: {len(dataset)} samples")
+
+    # === 샘플 점검 ===
+    for i in range(min(args.num_samples, len(dataset))):
+        print("=" * 60)
+        print(f"[샘플 {i}]")
+        item = dataset[i]
+        input_ids = item["input_ids"]
+        loss_mask = item["loss_mask"]
+        tokenizer = dataset.tokenizer
+
+        # loss_mask=1 인 위치
+        ones = (loss_mask == 1).nonzero(as_tuple=True)[0].tolist()
+        print("loss_mask=1 인덱스:", ones)
+
+        # 해당 토큰 ID
+        assistant_ids = input_ids[loss_mask == 1]
+        print("assistant 토큰 IDs:", assistant_ids.tolist())
+
+        # 디코딩된 텍스트
+        assistant_text = tokenizer.decode(assistant_ids)
+        print("\n[assistant 학습 대상 텍스트]")
+        print(assistant_text, "\n")
