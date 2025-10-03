@@ -14,6 +14,98 @@ from transformers.image_processing_base import BatchFeature
 from PIL import Image
 from tqdm import tqdm
 import json
+#generator 수정
+import uuid
+
+# ===== (1) DashScope 설정 =====
+from http import HTTPStatus
+from dotenv import load_dotenv
+
+dotenv_dir = os.path.expanduser('~/workspace/VRAG_test/')
+
+# 2. .env 파일의 전체 경로를 만듭니다.
+dotenv_path = os.path.join(dotenv_dir, '.env')
+
+# 3. 해당 경로의 .env 파일을 명시적으로 로드합니다.
+load_dotenv(dotenv_path=dotenv_path)
+
+try:
+    import dashscope  # frozen generator (Qwen2.5-VL-72B 계열)
+    import os as _os
+    dashscope.base_http_api_url = _os.getenv(
+        "DASHSCOPE_BASE_URL",
+        "https://dashscope-intl.aliyuncs.com/api/v1"
+    )
+    _API_KEY = _os.getenv("DASHSCOPE_API_KEY") or _os.getenv("DASH_SCOPE_KEY")
+    if not _API_KEY:
+        raise RuntimeError("Set DASHSCOPE_API_KEY (or DASH_SCOPE_KEY).")
+    dashscope.api_key = _API_KEY
+    _HAS_DASHSCOPE = True
+except Exception:
+    _HAS_DASHSCOPE = False
+
+# >>> ADDED: DashScope 멀티모달 헬퍼 (import 블록 바로 아래에 추가)
+try:
+    from dashscope import MultiModalConversation
+except Exception:
+    pass  # _HAS_DASHSCOPE=False 인 경우 대비
+
+def _extract_text_from_multimodal(resp):
+    """DashScope 멀티모달 응답에서 텍스트를 최대한 안전하게 추출"""
+    try:
+        ot = getattr(resp, "output_text", None)
+        if ot:
+            return str(ot).strip()
+    except Exception:
+        pass
+
+    out = getattr(resp, "output", None)
+    if not isinstance(out, dict):
+        return None
+
+    choices = out.get("choices") or []
+    if not choices:
+        return None
+    msg = choices[0].get("message") or {}
+    content = msg.get("content") or []
+    texts = []
+    for part in content:
+        if isinstance(part, dict) and part.get("text") is not None:
+            texts.append(str(part["text"]))
+    if texts:
+        return "".join(texts).strip()
+
+    if msg.get("text") is not None:
+        return str(msg["text"]).strip()
+    if out.get("text") is not None:
+        return str(out["text"]).strip()
+    return None
+def _dashscope_call_with_fallback(model: str, messages: list, max_tokens: int):
+    """SDK 버전 호환: max_output_tokens → 실패 시 max_tokens로 재시도"""
+    try:
+        return MultiModalConversation.call(
+            model=model,
+            messages=messages,
+            max_output_tokens=max_tokens,
+        )
+    except TypeError:
+        pass  # 일부 SDK는 max_output_tokens 미지원
+    return MultiModalConversation.call(
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+    )
+
+def _to_image_part(path: str) -> dict | None:
+    """로컬 경로를 DashScope 이미지 파트(dict)로 변환 (file:// 스킴 강제)"""
+    if not path:
+        return None
+    if not path.startswith("file://"):
+        path = "file://" + os.path.abspath(path)
+    return {"image": path}
+# <<< ADDED 끝
+
+
 
 def process_image(image, max_pixels: int = 2048 * 2048, min_pixels: int = 512 * 512):
     import math
@@ -47,6 +139,14 @@ class GenerationConfig:
     max_prompt_length: int 
     num_gpus: int
     search_url: str = None
+    #generator added
+    crops_dir: str = "./agent_crops"
+    frozen_model: str = "qwen2.5-vl-72b-instruct"   # Qwen2.5-VL-72B-Instruct 호환
+    frozen_max_tokens: int = 1024
+    generator_max_images: int = 16
+    use_system_prompt: bool = True
+    #    
+
 
 class LLMGenerationManager:
     def __init__(
@@ -65,6 +165,12 @@ class LLMGenerationManager:
         self.tensor_fn = TensorHelper(TensorConfig(
             pad_token_id=self.tokenizer.pad_token_id
         ))
+        #generator added
+        os.makedirs(self.config.crops_dir, exist_ok=True)
+        self.cropped_images = None
+        self.questions = None
+        #        
+
 
     def _batch_tokenize(self, responses: List[str]) -> torch.Tensor:
         """Tokenize a batch of responses."""
@@ -93,11 +199,8 @@ class LLMGenerationManager:
         )
 
         def extract_tags(text):
-            # 定义正则表达式，匹配 <answer>...</answer>、<search>...</search> 和 <think>...</think>
-            pattern = r"<(answer|search|think|bbox)>(.*?)</\1>"
-            # 使用 findall 方法找到所有匹配的内容
+            pattern = r"<(search|think|bbox|search_complete)>(.*?)</\1>" # generator 수정
             matches = re.findall(pattern, text, re.DOTALL)
-            # 将匹配的内容重新组合成字符串
             result = "\n".join([f"<{tag}>{content}</{tag}>" for tag, content in matches])
             return result
 
@@ -121,7 +224,7 @@ class LLMGenerationManager:
                 multi_modal_inputs.append(BatchFeature(dict()))
             # invalid
             elif isinstance(obs_item, list) and not isinstance(obs_item[0],dict) and len(self.retrievaled_images[idx]) == 0:
-                next_obs_str.append('\n<|im_start|>user\nYour previous action is invalid. You must conduct reasoning inside <think> and </think> first every time you get new information. After reasoning, if you find you lack some knowledge, you can call a search engine by <search> query </search> and user will return the searched results. Every time you retrieve an image, you have the option to crop it to obtain a clearer view, the format for coordinates is <bbox>[x1, y1, x2, y2]</bbox>. You can search as many times as your want. If you find no further external knowledge needed, you can directly provide the answer inside <answer> and </answer>, without detailed illustrations. For example, <answer> Beijing </answer>. Please try again.\n<|im_end|>\n<|im_start|>assistant\n')
+                next_obs_str.append('\n<|im_start|>user\nYour previous action is invalid. You must conduct reasoning inside <think> and <think> every time you get new information. After reasoning, if you find you lack some knowledge, you can call a search engine using <search> query </search> and the user will return the search results. Whenever you retrieve an image, you may crop it for a clearer view using <bbox>[x1, y1, x2, y2]</bbox>. You can search as many times as you want. If you determine that no further knowledge is needed, you must finish with <search_complete>true</search_complete>. Otherwise, continue with <search> or <bbox> actions until you are ready to finish. Please try again.\n<|im_end|>\n<|im_start|>assistant\n')
                 multi_modal_data.append({'image': []})
                 multi_modal_inputs.append(BatchFeature(dict()))
             # crop
@@ -138,6 +241,12 @@ class LLMGenerationManager:
                     input_images_list = [raw_images_crop.crop((crop_area[0], crop_area[1], crop_area[2], crop_area[3]))]
                     raw_images_list = [process_image(image, 512*28*28, 256*28*28) for image in input_images_list]
 
+                    #generator added
+                    crop_path = os.path.join(self.config.crops_dir, f"{uuid.uuid4().hex}.jpg")
+                    raw_images_list[0].save(crop_path)
+                    self.cropped_images[idx].append(crop_path)
+                    #                    
+
                     multi_modal_data.append({'image': raw_images_list})
                     image_inputs = self.processor.image_processor(raw_images_list, return_tensors='pt')
                     multi_modal_inputs.append(image_inputs)
@@ -147,7 +256,7 @@ class LLMGenerationManager:
                     obs_str = '\n<|im_start|>user\n' + obs_str + '<|im_end|>\n<|im_start|>assistant\n'
                     next_obs_str.append(obs_str)   
                 except Exception as e:
-                    next_obs_str.append('\n<|im_start|>user\nYour previous action is invalid. You must conduct reasoning inside <think> and </think> first every time you get new information. After reasoning, if you find you lack some knowledge, you can call a search engine by <search> query </search> and user will return the searched results. Every time you retrieve an image, you have the option to crop it to obtain a clearer view, the format for coordinates is <bbox>[x1, y1, x2, y2]</bbox>. You can search as many times as your want. If you find no further external knowledge needed, you can directly provide the answer inside <answer> and </answer>, without detailed illustrations. For example, <answer> Beijing </answer>. Please try again.\n<|im_end|>\n<|im_start|>assistant\n')
+                    next_obs_str.append('\n<|im_start|>user\nYour previous action is invalid. You must conduct reasoning inside <think> and </think> every time you get new information. After reasoning, if you find you lack some knowledge, you can call a search engine using <search> query </search> and the user will return the search results. Whenever you retrieve an image, you may crop it for a clearer view using <bbox>[x1, y1, x2, y2]</bbox>. You can search as many times as you want. If you determine that no further external knowledge is needed, you must finish with <search_complete>true</search_complete>. Otherwise, continue with <search> or <bbox> actions until you are ready to finish. Please try again.\n<|im_end|>\n<|im_start|>assistant\n')
                     multi_modal_data.append({'image': []})
                     multi_modal_inputs.append(BatchFeature(dict())) 
             # ret image
@@ -376,25 +485,41 @@ class LLMGenerationManager:
         active_mask = torch.ones(gen_batch.batch['input_ids'].shape[0], dtype=torch.bool)
         active_num_list = [active_mask.sum().item()]
         rollings = gen_batch
-        # rollings_multimodal_data = gen_batch.non_tensor_batch.get('multi_modal_inputs', None)
-        # rollings_multimodal_data = gen_batch.non_tensor_batch['multi_modal_inputs']
-        # rollings_multimodal_data = None
         raw_prompt_ids = rollings.non_tensor_batch['raw_prompt_ids']
 
-        self.retrievaled_images = [[] for _ in range(gen_batch.batch['input_ids'].shape[0])]
+        #generator added
+        self.search_completed = [False] * gen_batch.batch['input_ids'].shape[0]
 
-        # Main generation loop
+        # ===== (4) 첫 턴에서 질문 문자열 저장(원래 파싱 방식) & 컨테이너 준비 =====
+        decoded_inputs = self.tokenizer.batch_decode(initial_input_ids, skip_special_tokens=True)
+        '''
+        최종 generator에게 초반 쿼리를 넘겨주기 위해서.
+        '''
+        self.questions = []
+        for s in decoded_inputs:
+            try:
+                q = s.split('Question: ')[1].split(' \n\nassistant\n')[0]
+            except Exception:
+                q = s  # fallback
+            self.questions.append(q)
+        #
+
+
+        self.retrievaled_images = [[] for _ in range(gen_batch.batch['input_ids'].shape[0])]
+        self.cropped_images = [[] for _ in range(gen_batch.batch['input_ids'].shape[0])]      # generator added
+
+        ############======================🚀Main generation loop🚀==================######################
         for step in range(self.config.max_turns):
             if not active_mask.sum():
                 break
             rollings.batch = self.tensor_fn.cut_to_effective_len(
                 rollings.batch,
                 keys=['input_ids', 'attention_mask', 'position_ids']
-            )
+            ) #데이터 압축
 
-            rollings = self._raw_prompt_ids(rollings)
+            rollings = self._raw_prompt_ids(rollings)#전처리 
 
-            active_mask = self.deactivate_batch(active_mask, rollings)
+            active_mask = self.deactivate_batch(active_mask, rollings) #최대 길이를 넘으면 deactivate
             if not active_mask.sum():
                 break
             
@@ -406,9 +531,8 @@ class LLMGenerationManager:
             else:
                 rollings_active = DataProto.from_dict({
                     k: v[active_mask] for k, v in rollings.batch.items()
-                })
+                })                
 
-            # self.processor.batch_decode(rollings_active.batch['input_ids'])
             gen_output = self._generate_with_gpu_padding(rollings_active)
 
             meta_info = gen_output.meta_info     
@@ -419,16 +543,19 @@ class LLMGenerationManager:
             
             # Execute in environment and process observations
             
-            padded_responses_ids, _ = self.tensor_fn._example_level_pad(responses_ids, responses_str, active_mask)# 수정 추가 uid 넘기기
+            #개별 예제(example) 수준에서 빈자리를 채워주는(pad)'
+            responses_ids, responses_str = self.tensor_fn._example_level_pad(responses_ids, responses_str, active_mask)
+
 
             #수정----#
-            # 1. execute_predictions를 호출하기 전에 uids를 가져옵니다.
-            active_uids = rollings.non_tensor_batch['id'][active_mask]
-            
+            # 1. execute_predictions를 호출하기 전에 uids를 가져옵니다
+
+            all_uids = rollings.non_tensor_batch['id']
+
 
             # 2. Execute in environment and process observations
             #    호출 시 uids를 두 번째 인자로 전달합니다.
-            next_obs, dones = self.execute_predictions(responses_str, active_uids, self.tokenizer.pad_token, active_mask)
+            next_obs, dones = self.execute_predictions(responses_str, all_uids, self.tokenizer.pad_token, active_mask)
             
             # --- 여기까지 ---
 
@@ -448,14 +575,14 @@ class LLMGenerationManager:
             # Update states            
             rollings = self._update_rolling_state(
                 rollings,
-                #responses_ids, #수정 제거 
-                padded_responses_ids, #수정 추가 uid
+                responses_ids, #수정 제거 
+                #padded_responses_ids, #수정 추가 uid
                 next_obs_ids
             )
             original_right_side = self._update_right_side(
                 original_right_side,
-                #responses_ids, #수정 제거 uid
-                padded_responses_ids, #수정 추가 uid
+                responses_ids, #수정 제거 uid
+                #padded_responses_ids, #수정 추가 uid
                 next_obs_ids
             )
 
@@ -491,12 +618,12 @@ class LLMGenerationManager:
                 responses_ids, responses_str = self._postprocess_responses(gen_output.batch['responses'])
                 responses_ids, responses_str = self.tensor_fn._example_level_pad(responses_ids, responses_str, active_mask)
 
-                active_uids = rollings.non_tensor_batch['id'][active_mask] #수정 uid 추가 
+                all_uids = rollings.non_tensor_batch['id'] #수정 uid 추가 
 
 
                 # # Execute in environment and process observations
                 _, dones = self.execute_predictions( #ctive uid 추가 수정
-                    responses_str, active_uids, self.tokenizer.pad_token, active_mask, do_search=False
+                    responses_str, all_uids, self.tokenizer.pad_token, active_mask, do_search=False
                 )
 
                 curr_active_mask = torch.tensor([not done for done in dones], dtype=torch.bool)
@@ -522,6 +649,26 @@ class LLMGenerationManager:
         for idx in range(len(self.retrievaled_images)):
             retrievaled_images_array[idx] = self.retrievaled_images[idx]
         rollings.non_tensor_batch['retrievaled_images'] = retrievaled_images_array
+        # ===== generator added=====
+        gen_to_tokenize = [""] * len(self.retrievaled_images)
+        for i in range(len(self.retrievaled_images)):
+            if self.search_completed[i]:
+                question = self.questions[i]
+                paths = self._prepare_generator_images(self.retrievaled_images[i], self.cropped_images[i])
+                answer_text = self._call_frozen_generator(question, paths)  # >>> uses helpers
+                gen_to_tokenize[i] = f"<answer>{answer_text}</answer>{self.tokenizer.eos_token}"
+            else:
+                gen_to_tokenize[i] = ""
+
+        ans_ids = self.tokenizer(
+            gen_to_tokenize, padding='longest', return_tensors='pt', add_special_tokens=False
+        )['input_ids']
+
+        original_right_side = self._update_right_side(original_right_side, ans_ids)
+        rollings = self._update_rolling_state(
+            rollings, ans_ids, next_obs_ids=torch.zeros((ans_ids.shape[0], 0), dtype=torch.long)
+        )
+        #
         
         return self._compose_final_output(original_left_side, original_right_side, meta_info, rollings)
     
@@ -586,73 +733,54 @@ class LLMGenerationManager:
         
         return final_output
 
+# ... (generation.py 파일의 다른 부분은 모두 동일합니다) ...
 
-
-
-# generation.py 파일의 execute_predictions 함수를 아래 내용으로 완전히 교체해주세요.
+    # execute_predictions 함수를 아래와 같이 수정합니다.
     def execute_predictions(self, predictions: List[str], uids: np.ndarray, pad_token: str, active_mask=None, do_search=True) -> List[str]:
-        cur_actions, contents = self.postprocess_predictions(predictions)
+        cur_actions, contents = self.postprocess_predictions(predictions)  
+
         next_obs, dones = [], []
         
         bbox_list = [content for action, content in zip(cur_actions, contents) if action == 'bbox']
         
         search_requests = []
-        # zip은 더 짧은 uids 리스트 길이에 맞춰 반복하므로 IndexError가 발생하지 않습니다.
         for i, (action, content) in enumerate(zip(cur_actions, contents)):
             if action == 'search':
-                #added
                 m = re.search(r'(\d+)$', str(uids[i]))
                 search_id = int(m.group(1)) if m else -1
-                #
+                
                 search_requests.append({
                     "query": content,
-                    #"id": uids[i] #train_ 빼기 수정
-                    "id": str(search_id)
-                })        
+                    "id": str(search_id),
+                    "request_idx": i  
+                })                   
 
         if do_search:
-            if len(search_requests) > 0:
+            if len(search_requests) > 0:              
                 batch_size = 100
-                search_results = []
+                search_results_list = []
                 for i in range(0, len(search_requests), batch_size):
                     batch_reqs = search_requests[i:i + batch_size]
                     response = requests.post(self.config.search_url, json=batch_reqs)                    
                     search_results_single_batch = response.json()
-                    search_results.extend(search_results_single_batch)
-                
-                # 받은 결과의 개수가 보낸 요청의 개수와 같은지 확인
+                    search_results_list.extend(search_results_single_batch)                  
 
-                # ================= DEBUG START =================
-                print("\n--- 🐛 디버깅 정보 🐛 ---")
-                print(f"보낸 요청 개수 (len(search_requests)): {len(search_requests)}")
-                print(f"받은 결과 개수 (len(search_results)): {len(search_results)}")
-                print("--- 보낸 요청 내용 (search_requests) ---")
-                import json
-                print(json.dumps(search_requests, indent=2, ensure_ascii=False))
-                print("--- 받은 결과 내용 (search_results) ---")
-                print(json.dumps(search_results, indent=2, ensure_ascii=False))
-                print("--------------------------\n")
-                # ================== DEBUG END ==================
-
-                assert len(search_results) == len(search_requests)
+                results_map = {item['request_idx']: item.get('results', []) for item in search_results_list}
+                assert len(results_map) == len(search_requests)
             else:
-                search_results = []
+                results_map = {}
         else:
-            # do_search=False일 경우, 요청 개수만큼 빈 결과를 생성
-            search_results = [''] * len(search_requests)
+            results_map = {}
+         
 
         for i, (action, active) in enumerate(zip(cur_actions, active_mask)):
             if not active:
                 next_obs.append('')
                 dones.append(1)
             else:
-                if action == 'answer':
-                    next_obs.append('')
-                    dones.append(1)
-                elif action == 'search':
-                    # 이 블록은 search_requests를 만들 때와 동일한 조건으로 실행되므로
-                    # search_results 리스트가 비어있을 수 없습니다.
-                    next_obs.append(search_results.pop(0))
+                if action == 'search':
+                    result_for_this_agent = results_map.get(i, [])
+                    next_obs.append(result_for_this_agent)
                     dones.append(0)
                 elif action == 'bbox':
                     try:
@@ -662,17 +790,22 @@ class LLMGenerationManager:
                         else:
                             raise ValueError("Invalid bbox value")
                     except:
-                        next_obs.append('\n<|im_start|>user\nYour previous action is invalid...\n<|im_end|>\n<|im_start|>assistant\n')
+                        next_obs.append('\n<|im_start|>user\nYour previous action is invalid. \n The bbox format is invalid. Expected format: JSON array [x1, y1, x2, y2] with all values >= 0. Please try again.\n<|im_end|>\n<|im_start|>assistant\n')
                     dones.append(0)
+                elif action == 'search_complete':
+                    is_true = contents[i].strip().lower() == 'true'
+                    if is_true:
+                        self.search_completed[i] = True
+                    next_obs.append('')
+                    dones.append(1)  # trajectory 종료
                 else:
-                    next_obs.append('\n<|im_start|>user\nYour previous action is invalid...\n<|im_end|>\n<|im_start|>assistant\n')
+                    next_obs.append('\n<|im_start|>user\nYour previous action is invalid. You must conduct reasoning inside <think> and </think> every time you get new information. After reasoning, if you find you lack some knowledge, you can call a search engine using <search> query </search> and the user will return the search results. Whenever you retrieve an image, you may crop it for a clearer view using <bbox>[x1, y1, x2, y2]</bbox>. You can search as many times as you want. If you determine that no further external knowledge is needed, you must finish with <search_complete>true</search_compelte>. Otherwise, continue with <search> or <bbox> actions until you are ready to finish. Please try again.\n<|im_end|>\n<|im_start|>assistant\n')
                     dones.append(0)
         
         # 모든 결과를 소비했는지 최종 확인
-        assert len(search_results) == 0
+        # assert len(search_results) == 0 # 이 로직은 더 이상 유효하지 않으므로 제거합니다.
 
         return next_obs, dones
-
 
 
     def postprocess_predictions(self, predictions: List[Any]) -> Tuple[List[int], List[bool]]:
@@ -690,7 +823,7 @@ class LLMGenerationManager:
                 
         for prediction in predictions:
             if isinstance(prediction, str): # for llm output
-                pattern = r'<(search|answer|bbox)>(.*?)</\1>'
+                pattern = r'<(search|bbox|search_complete)>(.*?)</\1>'
                 match = re.search(pattern, prediction, re.DOTALL)
                 if match:
                     content = match.group(2).strip()  # Return only the content inside the tags
@@ -706,3 +839,64 @@ class LLMGenerationManager:
             
         return actions, contents
 
+    #generator added
+    # ===== (8) generator 이미지 준비 =====
+    def _prepare_generator_images(self, originals: List[str], crops: List[str]) -> List[str]:
+        # 존재하는 파일만, 중복 제거, 최대 장수 제한
+        seen = set()
+        out = []
+        for p in (originals + crops):
+            if p and (p not in seen) and os.path.exists(p):
+                seen.add(p)
+                out.append(p)
+            if len(out) >= self.config.generator_max_images:
+                break
+        return out
+
+    # ===== (9) DashScope로 generator 호출 =====
+    def _call_frozen_generator(self, question: str, image_paths: List[str]) -> str:
+        if not _HAS_DASHSCOPE:
+            return ""
+
+        try:
+            # 빈 프롬프트 방지(400 회피)
+            qtext = (question or "").strip() or "."
+
+            sys_prompt = (
+                "You are a visual QA generator. "
+                "Use only the provided images and the user question. "
+                "Return ONLY the final answer text without extra explanations."
+            )
+
+            # 이미지 파트 구성 (file:// 강제)
+            user_content = []
+            if image_paths:
+                for p in image_paths:
+                    part = _to_image_part(p)  # >>> ADDED: helper 사용
+                    if part:
+                        user_content.append(part)
+            user_content.append({"text": f"Question: {qtext}"})
+
+            messages = []
+            if getattr(self.config, "use_system_prompt", True):
+                messages.append({"role": "system", "content": [{"text": sys_prompt}]})
+            messages.append({"role": "user", "content": user_content})
+
+            # max_output_tokens / max_tokens 호환
+            resp = _dashscope_call_with_fallback(  # >>> ADDED: helper 사용
+                model=self.config.frozen_model,
+                messages=messages,
+                max_tokens=int(getattr(self.config, "frozen_max_tokens", 256)),
+            )
+
+            # 상태코드 OK일 때 텍스트 추출
+            if getattr(resp, "status_code", None) == HTTPStatus.OK:
+                text = _extract_text_from_multimodal(resp)  # >>> ADDED: helper 사용
+                return text if text is not None else ""
+
+            # 에러 시 빈 문자열(훈련 루프 끊기지 않게)
+            return ""
+        except Exception:
+            return ""        
+
+#

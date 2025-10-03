@@ -1013,6 +1013,7 @@ class RayPPOTrainer(object):
                 end_token_pos = start_token_pos + len(state_tokens)
                 
                 state_mask[i, start_token_pos:end_token_pos] = 0
+            
         
 
         ######## find last \n<|im_start|>user\n<|vision_start|>{self.processor.image_token * (image_grid_thw.prod() // merge_length)}<|vision_end|><|im_end|>
@@ -1031,6 +1032,18 @@ class RayPPOTrainer(object):
                 start_token_pos = len(start_tokens)
                 end_token_pos = start_token_pos + len(state_tokens)
                 state_mask[i, start_token_pos:end_token_pos] = 0
+
+        #generator added
+        for i, response in enumerate(responses):
+            for m in re.finditer(r"<answer>(.*?)</answer>", response, flags=re.DOTALL | re.IGNORECASE):
+                start, end = m.span()
+                prefix_to_start = response[:start]
+                section = response[start:end]
+                start_token_pos = len(self.tokenizer.encode(prefix_to_start, add_special_tokens=False))
+                end_token_pos = start_token_pos + len(self.tokenizer.encode(section, add_special_tokens=False))
+                state_mask[i, start_token_pos:end_token_pos] = 0
+            
+        #                
             
         loss_mask = state_mask * response_mask
         batch.batch['loss_mask'] = loss_mask
@@ -1104,12 +1117,12 @@ class RayPPOTrainer(object):
             if 'multi_modal_inputs' in test_batch.non_tensor_batch.keys():
                 test_gen_batch = test_batch.pop(
                     batch_keys=['input_ids', 'attention_mask', 'position_ids'],
-                    non_tensor_batch_keys=['raw_prompt_ids', 'multi_modal_data', 'multi_modal_inputs'],
+                    non_tensor_batch_keys=['id','raw_prompt_ids', 'multi_modal_data', 'multi_modal_inputs'],
                 )
             else:
                 test_gen_batch = test_batch.pop(
                     batch_keys=['input_ids', 'attention_mask', 'position_ids'],
-                    non_tensor_batch_keys=['raw_prompt_ids'],
+                    non_tensor_batch_keys=['id', 'raw_prompt_ids'],
                 )
 
             test_gen_batch.meta_info = {
@@ -1170,4 +1183,12 @@ class RayPPOTrainer(object):
         metric_dict[f'val/test_score/overall'] = np.mean(overall_rewards)
         
         return metric_dict
+
+
+
+
+
+
+
+
 

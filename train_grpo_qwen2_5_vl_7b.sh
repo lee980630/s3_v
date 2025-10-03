@@ -9,15 +9,14 @@ ENGINE=${1:-vllm}
     # profiler.end_step=1 \
     # profiler.ranks=[0] $@
 
-model_path=outputs/sft-test/global_step_4
+model_path=outputs/sft-test/global_step_444
 #n_gpus=$(nvidia-smi -L | wc -l)
 #for test
 n_gpus=4
 
-#train_batch_size=32
-train_batch_size=24 #수정
+train_batch_size=48
 #ppo_mini_batch_size=$((4 * n_gpus)) #4= gpu에 올릴 데이터 개수
-ppo_mini_batch_size=12 #수정
+ppo_mini_batch_size=12 #수정( 4*4)
 ppo_micro_batch_size_per_gpu=3
 log_prob_micro_batch_size_per_gpu=3
 #n_agent=5
@@ -97,7 +96,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.01 \
     actor_rollout_ref.actor.kl_loss_type=clipping \
-    actor_rollout_ref.actor.entropy_coeff=0 \
+    actor_rollout_ref.actor.entropy_coeff=0.01 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
@@ -106,7 +105,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$log_prob_micro_batch_size_per_gpu \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$tensor_model_parallel_size \
     actor_rollout_ref.rollout.name=$ENGINE \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=True \
     actor_rollout_ref.rollout.n=1 \
@@ -125,8 +124,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name=my_run \
     trainer.n_gpus_per_node=$n_gpus \
     trainer.nnodes=1 \
-    trainer.save_freq=2 \
-    trainer.test_freq=2 \
+    trainer.save_freq=30 \
+    trainer.test_freq=20 \
     trainer.total_epochs=2 \
     trainer.resume_mode=disable \
     trainer.val_before_train=$val_before_train \

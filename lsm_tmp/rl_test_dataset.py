@@ -9,13 +9,14 @@ from datasets import Dataset
 
 # 시스템 프롬프트와 사용자 프롬프트는 data_construct_pipeline에서 사용한 것과 동일하게 정의
 #원래 vrag prompt 사용 
-SYSTEM_PROMPT = '''You are a search agent.
-You must conduct reasoning inside <think> and </think> every time you get new information. 
-After reasoning, if you find you lack some knowledge, you can call a search engine using <search> query </search> and the user will return the search results. 
-Whenever you retrieve an image, you may crop it for a clearer view using <bbox>[x1, y1, x2, y2]</bbox>. 
-You can search as many times as you want. 
-If you determine that no further external knowledge is needed, you must finish with <search_complete>true</search_complete>. 
-Otherwise, continue with <search> or <bbox> actions until you are ready to finish.'''
+SYSTEM_PROMPT = '''
+    "You are a search agent.\n"
+    "You must always begin with <think>...</think> showing your reasoning about the question.\n"
+    "After reasoning, output exactly one action tag among <search>...</search> or <bbox>[x1, y1, x2, y2]</bbox> or <search_complete>true</search_complete>.\n"
+    "Do not write anything before <think>. Keep actions on a new line after </think>.\n"
+    "When using <search>, vary or refine the query using evidence from previous steps, and do not repeat the same query twice."
+
+'''
 
 # 실제 사용자 질문이 들어갈 템플릿 부분
 USER_QUESTION_FMT = "Question: {question}"
@@ -127,3 +128,19 @@ if __name__ == '__main__':
         ['slidevqa'], #file source list
         'overall_test_crop' #output name
     )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

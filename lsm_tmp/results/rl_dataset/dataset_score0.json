@@ -131,6 +131,40 @@
           8
         ]
       }
+    },
+    {
+      "uid": "train_21",
+      "query": "Which city has the lowest Grade A Office Cap Rate?",
+      "reference_answer": "Taipei",
+      "meta_info": {
+        "file_name": "21.pdf",
+        "reference_page": [
+          19
+        ]
+      }
+    },
+    {
+      "uid": "train_22",
+      "query": "What percentage is the Grade A Office Cap Rate in Tokyo?",
+      "reference_answer": "3.65",
+      "meta_info": {
+        "file_name": "22.pdf",
+        "reference_page": [
+          19
+        ]
+      }
+    },
+    {
+      "uid": "train_23",
+      "query": "What percentage is the Grade A Office Cap Rate in the city in Japan where there is a Savills office?",
+      "reference_answer": "3.65",
+      "meta_info": {
+        "file_name": "23.pdf",
+        "reference_page": [
+          4,
+          19
+        ]
+      }
     }
   ]
 }

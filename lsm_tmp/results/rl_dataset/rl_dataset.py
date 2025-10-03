@@ -1,5 +1,3 @@
-#9/13완료
-
 import argparse
 import json
 import os
@@ -19,21 +17,18 @@ from datasets import Dataset
 
 
 # 위의 코드는 아래의 한 줄짜리 코드와 완전히 동일하게 동작합니다.
-#원래 vrag prompt 사용 
-SYSTEM_PROMPT = '''
-    "You are a search agent.\n"
-    "You must always begin with <think>...</think> showing your reasoning about the question.\n"
-    "After reasoning, output exactly one action tag among <search>...</search> or <bbox>[x1, y1, x2, y2]</bbox> or <search_complete>true</search_complete>.\n"
-    "Do not write anything before <think>. Keep actions on a new line after </think>.\n"
-    "When using <search>, vary or refine the query using evidence from previous steps, and do not repeat the same query twice."
-'''
+SYSTEM_PROMPT = """You are a search agent.\n
+You must always begin with <think>...</think> showing your reasoning about the question.\n
+After reasoning, output exactly one action tag among <search>...</search> or <bbox>[x1, y1, x2, y2]</bbox> or <search_complete>true</search_complete>.\n
+Do not write anything before <think>. Keep actions on a new line after </think>.\n
+When using <search>, vary or refine the query using evidence from previous steps, and do not repeat the same query twice."""
 
-# 실제 사용자 질문이 들어갈 템플릿 부분
+
 USER_QUESTION_FMT = "Question: {question}"
 
 
 # all_examples = [example for example in all_examples if example['query'] not in sft_questions]
-def convert_dataset(SYSTEM_PROMPT,USER_QUESTION_FMT,file_list,file_source_list,output_name):
+def convert_dataset(USER_PROMPT,file_list,file_source_list,output_name):
     all_examples = []
     for file_name, source_type in zip(file_list, file_source_list):
         with open(file_name, "r") as f:
@@ -126,14 +121,13 @@ def convert_dataset(SYSTEM_PROMPT,USER_QUESTION_FMT,file_list,file_source_list,o
     # 기존 'id', 'problem' 등의 열은 .pop()으로 인해 사라지고, 'data' 딕셔너리에 정의된 키들만 남게 됩니다.
     test_dataset = dataset.map(function=make_map_fn_test('test'), with_indices=True, num_proc=8)
 
-    test_dataset.to_parquet(f'./lsm_tmp/results/{output_name}.parquet')
+    test_dataset.to_parquet(f'./{output_name}.parquet')
 
 
 if __name__ == '__main__':
     convert_dataset(
-        SYSTEM_PROMPT,
-        USER_QUESTION_FMT,        
-        ['./lsm_tmp/rag_dataset.json'],#rl_train_dataset.json
+        SYSTEM_PROMPT,       
+        ['./dataset_score0.json'],#rl_train_dataset.json
         ['slidevqa_train'], #file source list
         'slidevqa_train_crop' #output name
     )

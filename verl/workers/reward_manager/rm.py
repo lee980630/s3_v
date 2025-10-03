@@ -305,7 +305,7 @@ class RMManager:
             # raw_score 필터링이 없으므로, 모든 데이터에 대해 model_eval_score를 가져옵니다.
             model_eval_score = eval_results.pop(0) if eval_results else 0.0
             final_score = (
-                0.8 * model_eval_score + 0.2 * ndcg_value # raw_score 항을 제거하고 가중치 재분배 (0.7, 0.2 -> 0.8, 0.2)
+                0.4 * model_eval_score + 0.6 * ndcg_value # raw_score 항을 제거하고 가중치 재분배 (0.7, 0.2 -> 0.8, 0.2)
             )
 
             reward_tensor[i, valid_response_length - 1] = final_score

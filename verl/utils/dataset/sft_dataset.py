@@ -20,7 +20,7 @@ Each parquet file contains
 
 """
 VRAG/VRAG에서
-python -m verl.utils.dataset.sft_dataset   --input ./lsm_tmp/results/sft_dataset/train_10.parquet   --tokenizer Qwen/Qwen2.5-7B-Instruct   --num_samples 2
+python -m verl.utils.dataset.sft_dataset   --input ./lsm_tmp/results/sft_dataset/train_10.parquet   --tokenizer Qwen/Qwen2.5-7B-Instruct
 위 명령어 실행
 """
 
@@ -387,7 +387,7 @@ if __name__ == "__main__":
     parser.add_argument("--input", type=str, required=True)
     parser.add_argument("--tokenizer", type=str, required=True)
     parser.add_argument("--max_len", type=int, default=2048)
-    parser.add_argument("--num_samples", type=int, default=2)
+    #parser.add_argument("--num_samples", type=int, default=2)
     args = parser.parse_args()
 
     # === 데이터셋 로드 ===
@@ -399,24 +399,36 @@ if __name__ == "__main__":
     )
     print(f"✅ parquet 로드 완료: {len(dataset)} samples")
 
-    # === 샘플 점검 ===
-    for i in range(min(args.num_samples, len(dataset))):
-        print("=" * 60)
-        print(f"[샘플 {i}]")
+    results = []
+
+    # === 샘플 점검 & JSON 생성 ===
+    for i in range(len(dataset)):
         item = dataset[i]
         input_ids = item["input_ids"]
         loss_mask = item["loss_mask"]
         tokenizer = dataset.tokenizer
 
         # loss_mask=1 인 위치
-        ones = (loss_mask == 1).nonzero(as_tuple=True)[0].tolist()
-        print("loss_mask=1 인덱스:", ones)
-
-        # 해당 토큰 ID
         assistant_ids = input_ids[loss_mask == 1]
-        print("assistant 토큰 IDs:", assistant_ids.tolist())
 
         # 디코딩된 텍스트
         assistant_text = tokenizer.decode(assistant_ids)
-        print("\n[assistant 학습 대상 텍스트]")
-        print(assistant_text, "\n")
+
+        # 원래 parquet 안의 id 필드 사용
+        # 만약 parquet에 'id'가 없다면 'uid' 등 다른 키 이름 확인 필요
+        sample_id = item.get("uid", i)  # 'id'가 없으면 인덱스 사용
+
+        results.append({
+            "id": sample_id,
+            "assistant_text": assistant_text
+        })
+
+
+    # === 원본 parquet 옆에 저장 경로 만들기 ===
+    base, ext = os.path.splitext(args.input)
+    output_file = base + "_assistant_only.json"
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(results, f, ensure_ascii=False, indent=2)
+
+    print(f"✅ 저장 완료: {output_file}")
