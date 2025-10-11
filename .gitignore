@@ -131,3 +131,4 @@ tests/e2e/toy_examples/deepspeed/synchronous/output.txt
 logs
 log
 outputs
+checker_logs/solution_str_log.txt

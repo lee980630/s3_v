@@ -20,6 +20,7 @@ import requests
 import math
 import numpy as np
 import os
+import re #added
 def dcg(relevance_scores):
     """
     计算折扣累积增益（DCG）
@@ -122,13 +123,13 @@ class RMManager:
 
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
-            score = self.compute_score( 
+            raw_score = self.compute_score( 
                 data_source=data_source,
                 solution_str=response_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
             )
-            scores.append(score)
+            scores.append(raw_score)
         data.batch['acc'] = torch.tensor(scores, dtype=torch.float32, device=prompt_ids.device)
         return scores
 
@@ -175,45 +176,45 @@ class RMManager:
                 reference_answer = data_item.non_tensor_batch['reward_model']['ground_truth']
             ))
 
-        # #data_to_be_eval: data_eval 중에서 raw_score가 0보다 큰 데이터만 필터링되어 들어있는 리스트.
-        # data_to_be_eval = []
-        # for i in range(len(data)):
-        #     data_item = data[i]  # DataProtoItem
+        #data_to_be_eval: data_eval 중에서 raw_score가 0보다 큰 데이터만 필터링되어 들어있는 리스트.
+        data_to_be_eval = []
+        for i in range(len(data)):
+            data_item = data[i]  # DataProtoItem
 
-        #     prompt_ids = data_item.batch['prompts']
+            prompt_ids = data_item.batch['prompts']
 
-        #     prompt_length = prompt_ids.shape[-1]
+            prompt_length = prompt_ids.shape[-1]
 
-        #     valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
-        #     valid_prompt_ids = prompt_ids[-valid_prompt_length:]
+            valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
+            valid_prompt_ids = prompt_ids[-valid_prompt_length:]
 
-        #     response_ids = data_item.batch['responses']
-        #     valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
-        #     valid_response_ids = response_ids[:valid_response_length]
+            response_ids = data_item.batch['responses']
+            valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
+            valid_response_ids = response_ids[:valid_response_length]
 
-        #     # decode
-        #     prompt_str = self.tokenizer.decode(valid_prompt_ids)
-        #     response_str = self.tokenizer.decode(valid_response_ids)
+            # decode
+            prompt_str = self.tokenizer.decode(valid_prompt_ids)
+            response_str = self.tokenizer.decode(valid_response_ids)
 
-        #     ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
+            ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
 
-        #     data_source = data_item.non_tensor_batch['data_source']
+            data_source = data_item.non_tensor_batch['data_source']
 
-        #     extra_info = data_item.non_tensor_batch.get('extra_info', None)
+            extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
-        #     #score = self.compute_score( #수정 제거 log 작성
-        #     raw_score = self.compute_score( #수정 추가 log 작성
-        #         data_source=data_source,
-        #         solution_str=response_str,
-        #         ground_truth=ground_truth,
-        #         extra_info=extra_info,
-        #     )
+            #score = self.compute_score( #수정 제거 log 작성
+            raw_score = self.compute_score( #수정 추가 log 작성
+                data_source=data_source,
+                solution_str=response_str,
+                ground_truth=ground_truth,
+                extra_info=extra_info,
+            )
             
-        #     #if score >0.0: 수정 제거 log 작성
-        #     if raw_score > 0.0:#수정 추가 log 작성
-        #         data_to_be_eval.append(data_eval[i])
+            #if score >0.0: 수정 제거 log 작성
+            if raw_score > 0.0:#수정 추가 log 작성
+                data_to_be_eval.append(data_eval[i])
 
-        data_to_be_eval = data_eval
+        #data_to_be_eval = data_eval #no format 수정 제거 
 
         if len(data_to_be_eval) > 0:
             request_data_to_be_eval = dict(
@@ -221,9 +222,9 @@ class RMManager:
                 prompts=data_to_be_eval
             )
             #외부 api 수정 
-            # prompts_json = json.dumps(request_data_to_be_eval) #수정 외부 api 제거
+            #prompts_json = json.dumps(request_data_to_be_eval) #수정 외부 api 제거
             print("=====================eval model start=====================")
-            # response = requests.post(self.rm_url, json=prompts_json) #외부 api 수정 제거
+            #response = requests.post(self.rm_url, json=prompts_json) #외부 api 수정 제거
             response = requests.post(self.rm_url, json=request_data_to_be_eval) #수정 추가 외부 api
             eval_results = response.json()
             print("=====================eval model end=====================")
@@ -252,6 +253,13 @@ class RMManager:
             data_source = data_item.non_tensor_batch['data_source']
 
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
+
+            raw_score = self.compute_score(
+                data_source=data_source,
+                solution_str=response_str,
+                ground_truth=ground_truth,
+                extra_info=extra_info,
+            )            
            
 
             # ###############수정 (삽입) ###########
@@ -271,44 +279,92 @@ class RMManager:
             # score = 0.8 * float(model_eval_score) + 0.2 * ndcg_value
             # #################수정 완료 (삽입) ###############
 
-
-            #################수정(주석 처리) ################    
-            #log 작성      
-            # if score >0.0:
-            #     retrievaled_images_basename_list = [os.path.basename(item.rstrip('/')).split(".jpg")[0] for item in data_item.non_tensor_batch['retrievaled_images']]
-            #     reference_images_basename_list = [f'{extra_info["file_name"].split(".pdf")[0]}_{page}' for page in extra_info["reference_page"].tolist()]
-            #     ndcg_value = ndcg(retrievaled_images_basename_list, reference_images_basename_list)
-
-            #     model_eval_score = eval_results.pop(0)
-            #     # score = 0.8*model_eval_score + 0.2*ndcg_value
-            #     score = 0.7*model_eval_score + 0.1*score + 0.2*ndcg_value
-            #################수정 완료(주석처리) #################
-
-            #수정 추가: log 작성##
-
             model_eval_score = 0.0
             ndcg_value = 0.0
             final_score = 0.0
-
-            # 1. 변수 초기화 추가
             retrievaled_images_basename_list = []
-            reference_images_basename_list = []            
+            reference_images_basename_list = []
 
-            try:
-                retrievaled_images_basename_list = [os.path.basename(item.rstrip('/')).split(".jpg")[0] for item in data_item.non_tensor_batch['retrievaled_images']]
-                reference_images_basename_list = [f'{extra_info["file_name"].split(".pdf")[0]}_{page}' for page in extra_info["reference_page"].tolist()]
+
+            ################수정(주석 처리) ################    
+            #log 작성      
+            
+            retrievaled_images_basename_list = [os.path.basename(item.rstrip('/')).split(".jpg")[0] for item in data_item.non_tensor_batch['retrievaled_images']]
+            reference_images_basename_list = [f'{extra_info["file_name"].split(".pdf")[0]}_{page}' for page in extra_info["reference_page"].tolist()]
+            
+            if raw_score >0.0:    
                 ndcg_value = ndcg(retrievaled_images_basename_list, reference_images_basename_list)
-            except Exception as e:
-                # RAG 관련 데이터가 아닐 경우 NDCG 계산에서 오류가 날 수 있으므로 기본값 0.0으로 처리합니다.
-                ndcg_value = 0.0
 
-            # raw_score 필터링이 없으므로, 모든 데이터에 대해 model_eval_score를 가져옵니다.
-            model_eval_score = eval_results.pop(0) if eval_results else 0.0
-            final_score = (
-                0.4 * model_eval_score + 0.6 * ndcg_value # raw_score 항을 제거하고 가중치 재분배 (0.7, 0.2 -> 0.8, 0.2)
-            )
+                model_eval_score = eval_results.pop(0)
+                # score = 0.8*model_eval_score + 0.2*ndcg_value
+                final_score = 0.2*model_eval_score + 0.1*raw_score + 0.7*ndcg_value
+            ################수정 완료(주석처리) #################
+
+            #수정 추가: log 작성##
+
+
+            # # 1. 변수 초기화 추가
+            # retrievaled_images_basename_list = []
+            # reference_images_basename_list = []            
+
+            # try:
+            #     retrievaled_images_basename_list = [os.path.basename(item.rstrip('/')).split(".jpg")[0] for item in data_item.non_tensor_batch['retrievaled_images']]
+            #     reference_images_basename_list = [f'{extra_info["file_name"].split(".pdf")[0]}_{page}' for page in extra_info["reference_page"].tolist()]
+            #     ndcg_value = ndcg(retrievaled_images_basename_list, reference_images_basename_list)
+            # except Exception as e:
+            #     # RAG 관련 데이터가 아닐 경우 NDCG 계산에서 오류가 날 수 있으므로 기본값 0.0으로 처리합니다.
+            #     ndcg_value = 0.0
+
+            # # raw_score 필터링이 없으므로, 모든 데이터에 대해 model_eval_score를 가져옵니다.
+            # model_eval_score = eval_results.pop(0) if eval_results else 0.0
+            # final_score = (
+            #     0.4 * model_eval_score + 0.6 * ndcg_value # raw_score 항을 제거하고 가중치 재분배 (0.7, 0.2 -> 0.8, 0.2)
+            # )
 
             reward_tensor[i, valid_response_length - 1] = final_score
+
+
+            #old logging
+            # # structured logging
+            # uid = str(data_item.non_tensor_batch['uid'])
+            # query_key = uid
+            # if query_key not in log_data:
+            #     log_data[query_key] = {"prompt": prompt_str, "agents": []}
+
+            # agent_id = len(log_data[query_key]["agents"]) + 1
+            # log_data[query_key]["agents"].append(
+            #     {
+            #         "agent_id": agent_id,
+            #         "response": response_str,
+            #         "📣generated_answer📣": data_eval[i]['generated_answer'], 
+            #         "scores": {
+            #             "raw_score": raw_score,                        
+            #             "model_eval_score": model_eval_score,
+            #             "ndcg_value": ndcg_value,
+            #             "⭐️final_score⭐️": final_score,
+            #             "ndcg_details": {
+            #                 "retrieved_documents": retrievaled_images_basename_list,
+            #                 "reference_documents": reference_images_basename_list,
+            #             }
+
+            #         },
+            #     }
+            # )    
+            ####수정 추가 완료: log 작성###        
+            retrieved_image_files = [os.path.basename(p) for p in data_item.non_tensor_batch.get('retrievaled_images', [])]
+            
+            # 2. 로그에 기록할 response 문자열을 새로 만듭니다.
+            response_str_for_log = response_str
+            if retrieved_image_files:
+                # 이미지 경로로 채워진 보기 좋은 플레이스홀더를 만듭니다.
+                image_placeholder = f" [Image Paths: {', '.join(retrieved_image_files)}] "
+                # 정규표현식을 사용해 <|vision_start|>와 <|vision_end|> 사이의 모든 내용을 플레이스홀더로 교체합니다.
+                response_str_for_log = re.sub(
+                    r"(<\|vision_start\|>).*?(<\|vision_end\|>)",
+                    r"\1" + image_placeholder + r"\2",
+                    response_str,
+                    flags=re.DOTALL
+                )
 
             # structured logging
             uid = str(data_item.non_tensor_batch['uid'])
@@ -320,12 +376,13 @@ class RMManager:
             log_data[query_key]["agents"].append(
                 {
                     "agent_id": agent_id,
-                    "response": response_str,
+                    "response": response_str_for_log,  #
+                    "📣generated_answer📣": data_eval[i]['generated_answer'], 
                     "scores": {
+                        "raw_score": raw_score,                        
                         "model_eval_score": model_eval_score,
-                        #"raw_score": raw_score,
                         "ndcg_value": ndcg_value,
-                        "final_score": final_score,
+                        "⭐️final_score⭐️": final_score,
                         "ndcg_details": {
                             "retrieved_documents": retrievaled_images_basename_list,
                             "reference_documents": reference_images_basename_list,
@@ -333,8 +390,7 @@ class RMManager:
 
                     },
                 }
-            )    
-            ####수정 추가 완료: log 작성###        
+            )            
 
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0

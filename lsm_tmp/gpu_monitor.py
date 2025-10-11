@@ -5,6 +5,7 @@ import threading
 from datetime import datetime
 from pynvml import *
 
+
 class GPUMonitor:
     def __init__(self, device_index=0, log_file=None, label = ""):
         try:
@@ -46,7 +47,7 @@ class GPUMonitor:
         self.monitor_thread.join()
         
         if not self.gpu_utils: 
-            nvmlShutdown() # 추가: 데이터 없어도 종료는 호출
+            #nvmlShutdown() # 추가: 데이터 없어도 종료는 호출
             return
 
         avg_gpu_util = sum(self.gpu_utils) / len(self.gpu_utils)
@@ -68,4 +69,4 @@ class GPUMonitor:
             with open(self.log_file, 'a') as f:
                 f.write(f"[{timestamp}]\n{log_message}\n")
         
-        nvmlShutdown()
+        #nvmlShutdown()

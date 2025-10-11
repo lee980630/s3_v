@@ -136,23 +136,41 @@ class RMEvalManager:
                 reference_answer = data_item.non_tensor_batch['reward_model']['ground_truth']
             ))
 
-        # ##############수정 (주석 처리) ########
-        # 이유: NotImplementedError를 유발하는 self.compute_score를 필터로 사용하지 않기 위해 주석 처리합니다.
-        # data_to_be_eval = []
-        # for i in range(len(data)):
-        #     data_item = data[i]
-        #     # ... (중략) ...
-        #     score = self.compute_score(...)
-        #     if score > 0.0:
-        #         data_to_be_eval.append(data_eval[i])
-        ##############수정 완료 (주석 처리) #########
+        data_to_be_eval = []
+        for i in range(len(data)):
+            data_item = data[i]  # DataProtoItem
 
-        ###############수정 (삽입) ###########
-        # 이유: 필터링 없이 모든 데이터를 외부 API 평가 대상으로 삼습니다.
-        data_to_be_eval = data_eval
-        #################수정 완료 (삽입) ###############
-        
-        eval_results = []  # [삽입] eval_results 변수를 미리 초기화합니다.
+            prompt_ids = data_item.batch['prompts']
+
+            prompt_length = prompt_ids.shape[-1]
+
+            valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
+            valid_prompt_ids = prompt_ids[-valid_prompt_length:]
+
+            response_ids = data_item.batch['responses']
+            valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
+            valid_response_ids = response_ids[:valid_response_length]
+
+            # decode
+            prompt_str = self.tokenizer.decode(valid_prompt_ids)
+            response_str = self.tokenizer.decode(valid_response_ids)
+
+            ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
+
+            data_source = data_item.non_tensor_batch['data_source']
+
+            extra_info = data_item.non_tensor_batch.get('extra_info', None)
+
+            score = self.compute_score(
+                data_source=data_source,
+                solution_str=response_str,
+                ground_truth=ground_truth,
+                extra_info=extra_info,
+            )
+            
+            if score >0.0:
+                data_to_be_eval.append(data_eval[i])
+
         if len(data_to_be_eval) > 0:
             bs = 200
             while True:
@@ -161,14 +179,15 @@ class RMEvalManager:
                         bs=bs,
                         prompts=data_to_be_eval
                     )
-                    prompts_json = json.dumps(request_data_to_be_eval)
+                    #prompts_json = json.dumps(request_data_to_be_eval)
                     print("=====================eval model start=====================")
-                    # response = requests.post(self.rm_url, json=prompts_json) #외부 api 출력 수정 제거
+                    #response = requests.post(self.rm_url, json=prompts_json) #외부 api 출력 수정 제거
                     response = requests.post(self.rm_url, json=request_data_to_be_eval) #외부 api 출력 추가
 
                     response.raise_for_status() # [수정] 응답 상태 코드가 200이 아니면 에러를 발생시킵니다.
                     eval_results = response.json()
                     print("=====================eval model end=====================")
+                    eval_results_iter = iter(eval_results) # ✨ API 결과를 이터레이터로 변환 수정 index error 해결
                     break
                 except requests.exceptions.RequestException as e: # [수정] 더 구체적인 예외를 잡습니다.
                     print(f"=====================eval model error: {e}=====================")
@@ -190,31 +209,33 @@ class RMEvalManager:
             data_source = data_item.non_tensor_batch['data_source']
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
-            ##############수정 (주석 처리) ########
-            # 이유: NotImplementedError를 유발하는 내부 점수 계산을 비활성화합니다.
-            # score = self.compute_score(
-            #     data_source=data_source,
-            #     solution_str=response_str,
-            #     ground_truth=ground_truth,
-            #     extra_info=extra_info,
-            # )
-            ##############수정 완료 (주석 처리) #########
+            #############수정 (주석 처리) ########
+            #이유: NotImplementedError를 유발하는 내부 점수 계산을 비활성화합니다.
+            score = self.compute_score(
+                data_source=data_source,
+                solution_str=response_str,
+                ground_truth=ground_truth,
+                extra_info=extra_info,
+            )
+            #############수정 완료 (주석 처리) #########
 
-            ###############수정 (삽입) ###########
-            # 이유: 내부 점수 대신 API 결과와 NDCG, Recall 점수만으로 최종 점수를 계산합니다.
-            score = eval_results[i] if i < len(eval_results) else 0.0
+            # ###############수정 (삽입) ###########
+            # # 이유: 내부 점수 대신 API 결과와 NDCG, Recall 점수만으로 최종 점수를 계산합니다.
+            # score = eval_results[i] if i < len(eval_results) else 0.0
             
-            # if score > 0.0: # [주석 처리] 내부 점수 필터링을 제거합니다.
-            try:
+            if score > 0.0: # [주석 처리] 내부 점수 필터링을 제거합니다.
+            #try:
+                #score = eval_results.pop(0) #format_score
+                score = next(eval_results_iter) # ✨ 필요할 때마다 순서대로 안전하게 하나씩 꺼내 사용 수정            
                 retrievaled_images_basename_list = [os.path.basename(item.rstrip('/')).split(".jpg")[0] for item in data_item.non_tensor_batch['retrievaled_images']]
                 reference_images_basename_list = [f'{extra_info["file_name"].split(".pdf")[0]}_{page}' for page in extra_info["reference_page"].tolist()]
                 recall_list.append(recall_ret(retrievaled_images_basename_list, reference_images_basename_list))
                 ndcg_list.append(ndcg(retrievaled_images_basename_list, reference_images_basename_list))
-            except Exception as e:
-                # RAG 관련 데이터가 아닐 경우 에러가 날 수 있으므로, 기본값을 추가하고 넘어갑니다.
-                recall_list.append(0.0)
-                ndcg_list.append(0.0)
-            #################수정 완료 (삽입) ###############
+            # except Exception as e:
+            #     # RAG 관련 데이터가 아닐 경우 에러가 날 수 있으므로, 기본값을 추가하고 넘어갑니다.
+            #     recall_list.append(0.0)
+            #     ndcg_list.append(0.0)
+            # #################수정 완료 (삽입) ###############
 
             reward_tensor[i, valid_response_length - 1] = score
 

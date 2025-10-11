@@ -398,60 +398,6 @@ class MMRAG:
                         "role": "user",
                         "content": f"[retrieved_image_path]: {selected_image}"
                     })
-# '''
-#                     selected_image = next_obs[0]
-#                     all_images.append(selected_image)
-
-#                     # --- ① 이미지 로드 + 전처리 ---
-#                     raw_img = process_image(selected_image)
-
-#                     # --- ② tensor 변환 ---
-#                     image_inputs = self.sft_model.processor.image_processor([raw_img], return_tensors="pt")
-#                     image_grid_thw = image_inputs['image_grid_thw']
-
-#                     # --- ③ vision 토큰 문자열 생성 ---
-#                     merge_length = self.sft_model.processor.image_processor.merge_size**2
-#                     vision_tokens = ''.join([
-#                         f"<|vision_start|>{self.sft_model.processor.image_token * (grid.prod() // merge_length)}<|vision_end|>"
-#                         for grid in image_grid_thw
-#                     ])
-
-#                     # --- ④ user role 메시지로 삽입 ---
-#                     messages.append({"role": "user", "content": vision_tokens})
-#                     messages.append({
-#                         "role": "user",
-#                         "content": [
-#                             {"type": "image", "image": Image.open(selected_image).convert("RGB")},
-#                             {"type": "text", "text": "Here is the retrieved image."}
-#                         ]
-#                     })
-#                     # --- ⑤ tensor는 별도로 저장 (모델 forward 시 같이 전달하기 위함) ---
-#                     if "multi_modal_inputs" not in sample:
-#                         sample["multi_modal_inputs"] = []
-#                     sample["multi_modal_inputs"].append(image_inputs)
-# '''
-# '''
-#                 elif isinstance(next_obs, str) and next_obs.endswith(('.png', '.jpg', '.jpeg')):  # 크롭 결과
-#                     crop_img = process_image(next_obs)
-#                     image_inputs = self.sft_model.processor.image_processor([crop_img], return_tensors="pt")
-
-#                     merge_length = self.sft_model.processor.image_processor.merge_size**2
-#                     vision_tokens = ''.join([
-#                         f"<|vision_start|>{self.sft_model.processor.image_token * (grid.prod() // merge_length)}<|vision_end|>"
-#                         for grid in image_inputs['image_grid_thw']
-#                     ])
-
-#                     # user role 메시지 추가
-#                     messages.append({"role": "user", "content": vision_tokens})
-
-#                     # tensor 보관
-#                     if "multi_modal_inputs" not in sample:
-#                         sample["multi_modal_inputs"] = []
-#                     sample["multi_modal_inputs"].append(image_inputs)
-
-#                     # crop 이미지 경로도 기록
-#                     crop_images.append(next_obs)
-# '''
 
                 elif isinstance(next_obs, str) and next_obs.endswith(('.png', '.jpg', '.jpeg')):  # 크롭 결과
                     # ⛔ 이미지 열지 않음, 텐서 생성하지 않음, vision token 만들지 않음

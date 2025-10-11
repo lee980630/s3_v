@@ -98,4 +98,3 @@ class LLMGenerator:
             else:
                 eval_results.append(0.0)
         return eval_results
-

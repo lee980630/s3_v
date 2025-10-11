@@ -9,16 +9,16 @@ ENGINE=${1:-vllm}
     # profiler.end_step=1 \
     # profiler.ranks=[0] $@
 
-model_path=outputs/sft-test/global_step_444
+model_path=outputs/sft-test/sft_370
 #n_gpus=$(nvidia-smi -L | wc -l)
 #for test
 n_gpus=4
 
 train_batch_size=48
 #ppo_mini_batch_size=$((4 * n_gpus)) #4= gpu에 올릴 데이터 개수
-ppo_mini_batch_size=12 #수정( 4*4)
-ppo_micro_batch_size_per_gpu=3
-log_prob_micro_batch_size_per_gpu=3
+ppo_mini_batch_size=16 #수정( 4*4)
+ppo_micro_batch_size_per_gpu=4
+log_prob_micro_batch_size_per_gpu=10
 #n_agent=5
 n_agent=5 #수정
 
@@ -27,15 +27,7 @@ n_agent=5 #수정
 #actor_rollout_ref.actor.optim.name='adamw_8bit' \ 추가
 #verl/workers/fsdp_workers.py 수정
 
-
-# # test
-# train_batch_size=4
-# ppo_mini_batch_size=4
-# ppo_micro_batch_size_per_gpu=1
-# log_prob_micro_batch_size_per_gpu=1
-# n_agent=2
-
-tensor_model_parallel_size=2
+tensor_model_parallel_size=1
 val_before_train=False
 #search_url="http://0.0.0.0:8002/search"
 search_url="http://163.239.28.21:5002/search"
@@ -100,14 +92,14 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
-    actor_rollout_ref.rollout.free_cache_engine=True \
+    actor_rollout_ref.rollout.free_cache_engine=False \
     actor_rollout_ref.actor.state_masking=True \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$log_prob_micro_batch_size_per_gpu \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$tensor_model_parallel_size \
     actor_rollout_ref.rollout.name=$ENGINE \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
-    actor_rollout_ref.rollout.enforce_eager=True \
+    actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.n=1 \
     actor_rollout_ref.rollout.n_agent=$n_agent \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$log_prob_micro_batch_size_per_gpu \
@@ -143,3 +135,15 @@ python3 -m verl.trainer.main_ppo \
 
 
 ####
+
+
+
+
+
+
+
+
+
+
+
+

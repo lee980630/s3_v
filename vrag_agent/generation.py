@@ -17,6 +17,17 @@ import json
 #generator 수정
 import uuid
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time as _time 
+import random as _random 
+
+# ▼▼▼[성능 측정 추가]▼▼▼ 수정
+# GPUMonitor와 시간 기록을 위한 모듈을 가져옵니다.
+from lsm_tmp.gpu_monitor import GPUMonitor
+from datetime import datetime
+# ▲▲▲[성능 측정 추가]▲▲▲
+
+
 # ===== (1) DashScope 설정 =====
 from http import HTTPStatus
 from dotenv import load_dotenv
@@ -80,6 +91,8 @@ def _extract_text_from_multimodal(resp):
     if out.get("text") is not None:
         return str(out["text"]).strip()
     return None
+
+
 def _dashscope_call_with_fallback(model: str, messages: list, max_tokens: int):
     """SDK 버전 호환: max_output_tokens → 실패 시 max_tokens로 재시도"""
     try:
@@ -143,9 +156,12 @@ class GenerationConfig:
     crops_dir: str = "./agent_crops"
     frozen_model: str = "qwen2.5-vl-72b-instruct"   # Qwen2.5-VL-72B-Instruct 호환
     frozen_max_tokens: int = 1024
-    generator_max_images: int = 16
+    generator_max_images: int = 8
     use_system_prompt: bool = True
-    #    
+    generator_batch_workers: int = 4
+    frozen_max_retries: int = 3
+    frozen_backoff_base: float = 1.5
+    
 
 
 class LLMGenerationManager:
@@ -167,9 +183,10 @@ class LLMGenerationManager:
         ))
         #generator added
         os.makedirs(self.config.crops_dir, exist_ok=True)
+        os.makedirs("./logs", exist_ok=True)
         self.cropped_images = None
         self.questions = None
-        #        
+                
 
 
     def _batch_tokenize(self, responses: List[str]) -> torch.Tensor:
@@ -477,7 +494,23 @@ class LLMGenerationManager:
     def run_llm_loop(self, gen_batch, initial_input_ids: torch.Tensor) -> Tuple[Dict, Dict]:
         """Run main LLM generation loop."""
 
-        # original_left_side = {'input_ids': initial_input_ids[:, -self.config.max_start_length:]}
+        meta_info = {}
+
+        # ▼▼▼[성능 측정 추가] 1. 로그 파일 및 모니터 객체 초기화▼▼▼ 수정
+        # 고유한 로그 파일 이름을 생성하여 모든 측정 결과를 한 파일에 기록합니다.
+        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_filename = f"./logs/generation_detail_{current_time}_{uuid.uuid4().hex[:6]}.txt"
+        
+        # 측정 지점 1: 메인 모델(Actor)의 '계획' 생성 성능 측정용
+        actor_monitor = GPUMonitor(log_file=log_filename, label="[1] Actor Generation (Planning)")
+        
+        # 측정 지점 2: 외부 도구(검색 API) 호출 시간 측정용
+        tool_monitor = GPUMonitor(log_file=log_filename, label="[2] Tool Execution (Search API)")
+        
+        # 측정 지점 3: Frozen 모델의 '최종 답변' 생성 성능 측정용
+        frozen_monitor = GPUMonitor(log_file=log_filename, label="[3] Frozen Generator (Answering)")
+        # ▲▲▲[성능 측정 추가]▲▲▲        
+
         original_left_side = {'input_ids': initial_input_ids}
         original_right_side = {'responses': initial_input_ids[:, []]}
 
@@ -533,7 +566,9 @@ class LLMGenerationManager:
                     k: v[active_mask] for k, v in rollings.batch.items()
                 })                
 
+            actor_monitor.start() #측정 지점 1: '계획' 생성 성능 측정 수정
             gen_output = self._generate_with_gpu_padding(rollings_active)
+            actor_monitor.stop() #측정 끝
 
             meta_info = gen_output.meta_info     
 
@@ -555,8 +590,11 @@ class LLMGenerationManager:
 
             # 2. Execute in environment and process observations
             #    호출 시 uids를 두 번째 인자로 전달합니다.
+
+            tool_monitor.start() #'행동'을 위한 외부 도구 호출 시간 측정▼▼▼ 수정
             next_obs, dones = self.execute_predictions(responses_str, all_uids, self.tokenizer.pad_token, active_mask)
-            
+            tool_monitor.stop() #측정 끝
+
             # --- 여기까지 ---
 
             #next_obs, dones = self.execute_predictions(responses_str, self.tokenizer.pad_token, active_mask) #수정 제거 uid 넘기기
@@ -651,14 +689,29 @@ class LLMGenerationManager:
         rollings.non_tensor_batch['retrievaled_images'] = retrievaled_images_array
         # ===== generator added=====
         gen_to_tokenize = [""] * len(self.retrievaled_images)
-        for i in range(len(self.retrievaled_images)):
-            if self.search_completed[i]:
-                question = self.questions[i]
+        
+        completed_indices = [i for i, flag in enumerate(self.search_completed) if flag]
+
+        if completed_indices:
+            batch_questions = []
+            batch_paths = []
+            
+            for i in completed_indices:
+                q = self.questions[i]
                 paths = self._prepare_generator_images(self.retrievaled_images[i], self.cropped_images[i])
-                answer_text = self._call_frozen_generator(question, paths)  # >>> uses helpers
-                gen_to_tokenize[i] = f"<answer>{answer_text}</answer>{self.tokenizer.eos_token}"
-            else:
-                gen_to_tokenize[i] = ""
+                batch_questions.append(q)
+                batch_paths.append(paths)
+
+            frozen_monitor.start()
+            index2answer = self._call_frozen_generator_batch(
+                completed_indices, batch_questions, batch_paths 
+            )
+            frozen_monitor.stop()
+
+            for i in completed_indices:
+                ans = index2answer.get(i, "")
+                if ans:
+                    gen_to_tokenize[i] = f"<answer>{ans}</answer>{self.tokenizer.eos_token}"
 
         ans_ids = self.tokenizer(
             gen_to_tokenize, padding='longest', return_tensors='pt', add_special_tokens=False
@@ -853,10 +906,11 @@ class LLMGenerationManager:
                 break
         return out
 
-    # ===== (9) DashScope로 generator 호출 =====
-    def _call_frozen_generator(self, question: str, image_paths: List[str]) -> str:
+
+
+    def _call_frozen_generator_single(self, question: str, image_paths: List[str]) -> Tuple[int, str]:
         if not _HAS_DASHSCOPE:
-            return ""
+            return (0, "")
 
         try:
             # 빈 프롬프트 방지(400 회피)
@@ -882,21 +936,82 @@ class LLMGenerationManager:
                 messages.append({"role": "system", "content": [{"text": sys_prompt}]})
             messages.append({"role": "user", "content": user_content})
 
-            # max_output_tokens / max_tokens 호환
-            resp = _dashscope_call_with_fallback(  # >>> ADDED: helper 사용
-                model=self.config.frozen_model,
-                messages=messages,
-                max_tokens=int(getattr(self.config, "frozen_max_tokens", 256)),
-            )
+            try:
+                resp = _dashscope_call_with_fallback(
+                    model=self.config.frozen_model,
+                    messages=messages,
+                    max_tokens=int(getattr(self.config, "frozen_max_tokens", 256)),
+                )
+            except Exception:
+                return (0, "")
 
-            # 상태코드 OK일 때 텍스트 추출
-            if getattr(resp, "status_code", None) == HTTPStatus.OK:
-                text = _extract_text_from_multimodal(resp)  # >>> ADDED: helper 사용
-                return text if text is not None else ""
-
-            # 에러 시 빈 문자열(훈련 루프 끊기지 않게)
-            return ""
+            code = getattr(resp, "status_code", None)
+            if code == HTTPStatus.OK:
+                text = _extract_text_from_multimodal(resp) or ""
+                return (200, text)
+            
+            return (int(code) if isinstance(code, HTTPStatus) else (code or 0), "")
         except Exception:
-            return ""        
+            return (0, "")
 
-#
+
+    def _call_frozen_generator_batch(
+        self,
+        indices: List[int],
+        questions: List[str],
+        images_list: List[List[str]],
+    ) -> Dict[int, str]:
+
+        results: Dict[int, str] = {}
+        if not indices:
+            return results
+        
+
+        workers = max(1, int(getattr(self.config, "generator_batch_workers", 4)))
+        workers = min(workers, 4)
+        max_retries = int(getattr(self.config, "frozen_max_retries", 3))
+        backoff_base = float(getattr(self.config, "frozen_backoff_base", 1.5))
+
+        def _once_with_retry(idx: int, q: str, paths: List[str]) -> Tuple[int, str]:
+            delay = 0.0
+            for attempt in range(max_retries):
+                if delay > 0:
+                    _time.sleep(delay)
+                code, ans = self._call_frozen_generator_single(q, paths)
+                
+                if code == 200:
+                    if ans:
+                        return idx, ans 
+                    else:
+                        return idx, ""
+                
+                if code in (429, 500, 502, 503, 504, 0):
+                    delay = (backoff_base ** attempt) + _random.uniform(0, 0.2)
+                    continue 
+                
+                return idx, ""
+            
+            return idx, ""
+
+        for start in range(0, len(indices), workers):
+            end = start + workers 
+            chunk_idx = indices[start:end]
+            chunk_q = questions[start:end]
+            chunk_img = images_list[start:end]
+
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                futs = [ex.submit(_once_with_retry, i, q, p) for i, q, p in zip(chunk_idx, chunk_q, chunk_img)]
+                for f in as_completed(futs):
+                    try:
+                        i, ans = f.result()
+                    except Exception:
+                        i, ans = None, ""
+                    if i is not None:
+                        results[i] = ans or ""
+
+            _time.sleep(0.05)
+        
+        return results 
+
+
+
